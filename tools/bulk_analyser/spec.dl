@@ -205,17 +205,16 @@ BasicBlockBegin(s) :- JumpTarget(s).
 .decl NextInSameBasicBlock(s:Statement, next:Statement)
 NextInSameBasicBlock(s,next) :-
   edge(s,next), !BasicBlockBegin(next).
+NextInSameBasicBlock(s,next) :-
+  BasicBlockHead(s,next), edge(s,next).
 
 .decl BasicBlockHead(s:Statement, head:Statement)
 BasicBlockHead(s,s) :- BasicBlockBegin(s).
 BasicBlockHead(s,h) :- BasicBlockHead(prev,h), NextInSameBasicBlock(prev,s).
+ .plan 1:(2,1)
 
-.decl BasicBlockTail(tail:Statement)
-BasicBlockTail(tail) :-
-  BasicBlockHead(tail,_), // it's in some basic block
-  !NextInSameBasicBlock(tail,_).
 
-// .output BasicBlockHead
+.output BasicBlockHead
 
 // Reachability and Dominance
 
@@ -240,9 +239,8 @@ CanReach(s,t) :- CanReach(s,v), edge(v,t).
 // defined on basic blocks, identified by their first instruction
 .decl SuccessorBB(next:Statement, prev:Statement)
 SuccessorBB(next,prev) :-
-  BasicBlockHead(prevTail, prev),
-  BasicBlockTail(prevTail),
-  edge(prevTail,next).
+  BasicBlockHead(exitNode, prev),
+  edge(exitNode,next).
 
 .decl PredecessorBB(prev:Statement, next:Statement)
 PredecessorBB(prev,next) :-
@@ -303,57 +301,56 @@ PostDominates(postdominator,s) :-
 
 //// Recognize structured loops
 
-.decl LoopBackEdge(from:Statement, to:Statement)
-.decl LoopHead(s:Statement)
+.decl StructuredLoopBackEdge(from:Statement, to:Statement)
+.decl StructuredLoopHead(s:Statement)
 
-LoopBackEdge(from,to),
-LoopHead(to) :-
+StructuredLoopBackEdge(from,to),
+StructuredLoopHead(to) :-
   edge(from,to),
   BasicBlockHead(from,h),
   Dominates(to,h).
 
 // Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
-.decl InLoop(s:Statement, loophead:Statement)
-InLoop(backEdgeNode,loophead) :- LoopBackEdge(backEdgeNode,loophead).
-InLoop(loophead,loophead) :- LoopHead(loophead).
+.decl InStructuredLoop(s:Statement, loophead:Statement)
+InStructuredLoop(backEdgeNode,loophead) :- StructuredLoopBackEdge(backEdgeNode,loophead).
+InStructuredLoop(loophead,loophead) :- StructuredLoopHead(loophead).
 // Can reach back edge node without going through loop head!
-InLoop(s,loophead) :-
-  InLoop(other,loophead),
+InStructuredLoop(s,loophead) :-
+  InStructuredLoop(other,loophead),
   edge(s,other),
   other != loophead.
 
-// // Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
-// .decl InLoop(s:Statement, loophead:Statement)
-// InLoop(s,loophead) :-
-//   CanReach(s,loophead),
-//   CanReach(loophead,s),
-//   LoopHead(loophead).
+.output StructuredLoopHead
+.output InStructuredLoop
 
-.output LoopHead
-.output InLoop
-
-.decl ContainsInnerLoop(loophead:Statement,innerLoopHead:Statement)
-ContainsInnerLoop(loophead,innerLoopHead) :-
-  LoopHead(loophead),
-  LoopHead(innerLoopHead),
-  InLoop(innerLoopHead,loophead),
+.decl ContainsInnerStructuredLoop(loophead:Statement,innerLoopHead:Statement)
+ContainsInnerStructuredLoop(loophead,innerLoopHead) :-
+  StructuredLoopHead(loophead),
+  StructuredLoopHead(innerLoopHead),
+  InStructuredLoop(innerLoopHead,loophead),
   innerLoopHead != loophead.
   
-.decl InnermostLoop(loophead:Statement)
-InnermostLoop(loophead) :-
-  LoopHead(loophead),
-  !ContainsInnerLoop(loophead,_).
+.decl InnermostStructuredLoop(loophead:Statement)
+InnermostStructuredLoop(loophead) :-
+  StructuredLoopHead(loophead),
+  !ContainsInnerStructuredLoop(loophead,_).
 
-.output InnermostLoop
+.output InnermostStructuredLoop
+
+// The most general definition of a loop-like structure: in same SCC
+.decl InLoop(s:Statement, t:Statement)
+InLoop(s,t) :-
+  CanReach(s,t),
+  CanReach(t,s),
+  s != t.
 
         //// ASSERTION
         .decl AssertLoopsAreStructured(s:Statement)
 	    .output AssertLoopsAreStructured
-        AssertLoopsAreStructured(s) :-
-		  InLoop(s,loophead),
-		  !ContainsInnerLoop(_,loophead),
-		  BasicBlockHead(s,h),
-		  !Dominates(loophead,h).
+        AssertLoopsAreStructured(h) :-
+		  BasicBlockHead(_,h),
+		  InLoop(h,_),
+		  !InStructuredLoop(h,_).
 
 
 // statement is a binary operator and has two distinct argument variables
