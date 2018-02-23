@@ -177,6 +177,7 @@ stateWriteUse(var, stmt) :- op(stmt, "SSTORE"), use(var, stmt, _).
 usedInStateOrCond(var, stmt) :- conditionVar(var, stmt).
 usedInStateOrCond(var, stmt) :- stateWriteUse(var, stmt).
 
+
 // Basic concepts: entry/exit, basic blocks
 
 .decl Entry(s:Statement)
@@ -308,19 +309,31 @@ PostDominates(postdominator,s) :-
 LoopBackEdge(from,to),
 LoopHead(to) :-
   edge(from,to),
-  Dominates(to,from).
+  BasicBlockHead(from,h),
+  Dominates(to,h).
 
+// Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
 .decl InLoop(s:Statement, loophead:Statement)
+InLoop(backEdgeNode,loophead) :- LoopBackEdge(backEdgeNode,loophead).
+InLoop(loophead,loophead) :- LoopHead(loophead).
+// Can reach back edge node without going through loop head!
 InLoop(s,loophead) :-
-  LoopHead(loophead),
-  CanReach(loophead,s),
-  CanReach(s,loophead).
+  InLoop(other,loophead),
+  edge(s,other),
+  other != loophead.
+
+// // Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
+// .decl InLoop(s:Statement, loophead:Statement)
+// InLoop(s,loophead) :-
+//   CanReach(s,loophead),
+//   CanReach(loophead,s),
+//   LoopHead(loophead).
 
 .output LoopHead
 .output InLoop
 
-.decl ContainsInnerLoop(loophead:Statement)
-ContainsInnerLoop(loophead) :-
+.decl ContainsInnerLoop(loophead:Statement,innerLoopHead:Statement)
+ContainsInnerLoop(loophead,innerLoopHead) :-
   LoopHead(loophead),
   LoopHead(innerLoopHead),
   InLoop(innerLoopHead,loophead),
@@ -329,7 +342,7 @@ ContainsInnerLoop(loophead) :-
 .decl InnermostLoop(loophead:Statement)
 InnermostLoop(loophead) :-
   LoopHead(loophead),
-  !ContainsInnerLoop(loophead).
+  !ContainsInnerLoop(loophead,_).
 
 .output InnermostLoop
 
@@ -338,10 +351,9 @@ InnermostLoop(loophead) :-
 	    .output AssertLoopsAreStructured
         AssertLoopsAreStructured(s) :-
 		  InLoop(s,loophead),
-		  !ContainsInnerLoop(loophead),
-		  !Dominates(loophead,s).
-
-
+		  !ContainsInnerLoop(_,loophead),
+		  BasicBlockHead(s,h),
+		  !Dominates(loophead,h).
 
 
 // statement is a binary operator and has two distinct argument variables
