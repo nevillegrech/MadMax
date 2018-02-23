@@ -31,11 +31,10 @@
 .type Variable
 .type Opcode
 .type Value
-
+.type Block
+      
 // INPUT
 
-.decl entry(s:Statement) 			                // statements without predecessors
-.input entry
 .decl edge(h:Statement, t:Statement)                // There is a CFG edge from h to t
 .input edge
 .decl def(var:Variable, stmt:Statement)             // var is defined by stmt
@@ -46,7 +45,13 @@
 .input op
 .decl value(var:Variable, val:Value)                // A variable's possible value set if known
 .input value
+.decl isBlock(b: Block)
+.decl block(s: Statement, b: Block)
+.input block
 
+isBlock(b) :- block(_, b).
+
+       
 // Requires dominator, CALL, JUMPI, SSTORE relations.
 .decl op_CALL(stmt:Statement, gas:Variable, target:Variable, value:Variable, data_start:Variable, data_length:Variable, return_start:Variable, return_length:Variable)
 .input op_CALL
@@ -55,15 +60,6 @@
 .decl op_SSTORE(stmt:Statement, loc:Variable, val:Variable)
 .input op_SSTORE
 
-// Dominance relations
-// [p]dom(s, d) => s is [post-]dominated by d
-// x is dominated by y if all paths from the root to x must go through y
-// Post-domination is domination in the reversed cfg with an auxiliary node connected to all
-// exit nodes.
-.decl dom(s:Statement, d:Statement)
-.input dom
-.decl pdom(s:Statement, d:Statement)
-.input pdom
 
 // Place opcodes into various categories.
 .decl unaryArith(opcode:Opcode)
@@ -164,7 +160,239 @@ stateWriteUse(var, stmt) :- op(stmt, "SSTORE"), use(var, stmt, _).
 usedInStateOrCond(var, stmt) :- conditionVar(var, stmt).
 usedInStateOrCond(var, stmt) :- stateWriteUse(var, stmt).
 
+// Basic concepts: entry/exit, basic blocks
 
+.decl Entry(s:Statement)
+.decl Exit(s:Statement)
+.decl IsStatement(s:Statement)
+
+.output Entry
+
+IsStatement(s) :- op(s, _).
+
+Entry(s) :- IsStatement(s), !edge(_,s).
+Exit(s) :- IsStatement(s), !edge(s,_).
+
+.decl IsJump(s:Statement)
+IsJump(s) :- op(s, "JUMP").
+IsJump(s) :- op(s, "JUMPI").
+
+.decl JumpTarget(s:Statement)
+JumpTarget(s) :- op(s, "JUMPDEST").
+
+.decl BasicBlockBegin(s:Statement)
+BasicBlockBegin(s) :- Entry(s).
+BasicBlockBegin(s) :- JumpTarget(s).
+
+.decl NextInSameBasicBlock(s:Statement, next:Statement)
+NextInSameBasicBlock(s,next) :-
+  edge(s,next), !BasicBlockBegin(next).
+
+.decl BasicBlockHead(s:Statement, head:Statement)
+BasicBlockHead(s,s) :- BasicBlockBegin(s).
+BasicBlockHead(s,h) :- BasicBlockHead(prev,h), NextInSameBasicBlock(prev,s).
+
+.decl BasicBlockTail(tail:Statement)
+BasicBlockTail(tail) :-
+  BasicBlockHead(tail,_), // it's in some basic block
+  !NextInSameBasicBlock(tail,_).
+
+// .output BasicBlockHead
+
+// Reachability and Dominance
+
+.decl CanReach(s:Statement, t:Statement)
+
+CanReach(s,s) :- IsStatement(s).
+CanReach(s,t) :- edge(s,t).
+CanReach(s,t) :- CanReach(s,v), edge(v,t).
+
+
+        //// ASSERTION
+        .decl AssertStatementsReachable(s:Statement)
+        .output AssertStatementsReachable
+	    .decl HelperStatementsReachable(s:Statement)
+        // there may be multiple entries
+        HelperStatementsReachable(s) :-
+          CanReach(entry,s), Entry(entry).
+	    AssertStatementsReachable(s) :-
+          IsStatement(s), !HelperStatementsReachable(s).
+
+
+// defined on basic blocks, identified by their first instruction
+.decl SuccessorBB(next:Statement, prev:Statement)
+SuccessorBB(next,prev) :-
+  BasicBlockHead(prevTail, prev),
+  BasicBlockTail(prevTail),
+  edge(prevTail,next).
+
+.decl PredecessorBB(prev:Statement, next:Statement)
+PredecessorBB(prev,next) :-
+  SuccessorBB(next,prev).
+
+
+        //// ASSERTION
+        .decl AssertSuccessorWellDefined(s:Statement)
+	    .output AssertSuccessorWellDefined
+        AssertSuccessorWellDefined(s) :- SuccessorBB(s,_), !BasicBlockHead(_,s).
+
+
+// Both arguments are basic block heads
+// There is a path from the entry to s that does not go through candidate
+.decl DoesNotDominate(candidate:Statement, s:Statement)
+DoesNotDominate(candidate,s) :-
+  Entry(s),
+  BasicBlockHead(_, candidate).
+
+DoesNotDominate(candidate,s) :-
+  DoesNotDominate(candidate,other),
+  SuccessorBB(s,other),
+  s != candidate.
+
+// Both arguments are basic block heads
+// There is a path from s to the exit that does not go through candidate
+.decl DoesNotPostDominate(candidate:Statement, s:Statement)
+DoesNotPostDominate(candidate,s) :-
+  Exit(exitNode),
+  BasicBlockHead(exitNode,s),
+  BasicBlockHead(_, candidate).
+
+DoesNotPostDominate(candidate,s) :-
+  DoesNotPostDominate(candidate,other),
+  SuccessorBB(other,s),
+  s != candidate.
+
+// The Dominates/PostDominates relation is defined on basic blocks,
+// represented by their first instruction (head). Defining
+// a dense quadratic relation, like Dominates, on individual
+// instructions would be expensive.
+.decl Dominates(dominator:Statement, s:Statement)
+Dominates(dominator,s) :-
+  BasicBlockHead(_, dominator),
+  BasicBlockHead(_, s),
+  !DoesNotDominate(dominator,s).
+
+.output Dominates
+
+.decl PostDominates(postdominator:Statement, s:Statement)
+PostDominates(postdominator,s) :-
+  BasicBlockHead(_, postdominator),
+  BasicBlockHead(_, s),
+  !DoesNotPostDominate(postdominator,s).
+
+.output PostDominates
+
+
+//// Recognize structured loops
+
+.decl LoopBackEdge(from:Statement, to:Statement)
+.decl LoopHead(s:Statement)
+
+LoopBackEdge(from,to),
+LoopHead(to) :-
+  edge(from,to),
+  Dominates(to,from).
+
+.decl InLoop(s:Statement, loophead:Statement)
+InLoop(s,loophead) :-
+  LoopHead(loophead),
+  CanReach(loophead,s),
+  CanReach(s,loophead).
+
+.output LoopHead
+.output InLoop
+
+.decl ContainsInnerLoop(loophead:Statement)
+ContainsInnerLoop(loophead) :-
+  LoopHead(loophead),
+  LoopHead(innerLoopHead),
+  InLoop(innerLoopHead,loophead),
+  innerLoopHead != loophead.
+  
+.decl InnermostLoop(loophead:Statement)
+InnermostLoop(loophead) :-
+  LoopHead(loophead),
+  !ContainsInnerLoop(loophead).
+
+.output InnermostLoop
+
+        //// ASSERTION
+        .decl AssertLoopsAreStructured(s:Statement)
+	    .output AssertLoopsAreStructured
+        AssertLoopsAreStructured(s) :-
+		  InLoop(s,loophead),
+		  !ContainsInnerLoop(loophead),
+		  !Dominates(loophead,s).
+
+
+.comp LoopDetection {
+  .decl Edge(x:Block, y: Block)
+
+  .decl CanReachBlock(s:Block, t:Block)
+
+  CanReachBlock(x, y), CanReachBlock(y, y), CanReachBlock(x, x) :- Edge(x, y).
+  CanReachBlock(x, z) :- CanReachBlock(x, y), Edge(y, z).
+
+  .decl InSameSCC(x:Block, y:Block)
+  InSameSCC(y, y), InSameSCC(x, x) :- Edge(x, y).
+  InSameSCC(x, y) :- CanReachBlock(x,y), CanReachBlock(y,x).
+
+  .decl BlockInLoop(x:Block)
+
+  BlockInLoop(x) :- InSameSCC(x, y), x != y.
+  BlockInLoop(x) :- Edge(x, x).
+
+      
+  .decl CrossSCCEdge(x:Block, y: Block)
+  CrossSCCEdge(x, y) :- Edge(x, y), !InSameSCC(x, y).
+
+  .decl LoopEntryEdge(x:Block, y: Block)
+  LoopEntryEdge(x, y) :- CrossSCCEdge(x, y), BlockInLoop(y).
+
+  .decl LoopExitEdge(x:Block, y: Block)
+  LoopExitEdge(x, y) :- CrossSCCEdge(x, y), BlockInLoop(x).
+
+  .decl EdgeInSameSCC(x:Block, y: Block)
+  EdgeInSameSCC(x, y) :- Edge(x, y), InSameSCC(x, y).
+
+  .decl ReentryEdge(x:Block, y: Block)
+  ReentryEdge(x, z) :- LoopExitEdge(x, y), EdgeInSameSCC(x, z), y!=z.
+
+  .decl NextEdge(x:Block, y: Block)
+  NextEdge(x, y) :- EdgeInSameSCC(x, y), BlockInLoop(x), !ReentryEdge(x, y), x!=y.
+}
+
+.init loop0 = LoopDetection
+loop0.Edge(x, y) :- edge(xb, yb), block(xb, x), block(yb, y).
+.init loop1 = LoopDetection
+loop1.Edge(x, y) :- loop0.NextEdge(x, y).
+.init loop2 = LoopDetection
+loop2.Edge(x, y) :- loop1.NextEdge(x, y).
+.init loop3 = LoopDetection
+loop3.Edge(x, y) :- loop2.NextEdge(x, y).
+.init loop4 = LoopDetection
+loop4.Edge(x, y) :- loop3.NextEdge(x, y).
+
+.decl AnyReentry(x: Block)
+      
+.output loop0.BlockInLoop
+.output loop0.NextEdge
+.output loop0.LoopExitEdge
+.output loop1.BlockInLoop
+.output loop1.NextEdge
+.output loop2.BlockInLoop
+.output loop2.NextEdge
+.output loop3.BlockInLoop
+.output loop3.NextEdge
+.output loop4.BlockInLoop
+
+.decl AssertNotMoreThan2Edges(x: Block)                 
+AssertNotMoreThan2Edges(x) :- loop0.Edge(x, y), loop0.Edge(x, z), loop0.Edge(x, p), y!=z, z!=p, p!=y.
+.output AssertNotMoreThan2Edges
+
+.decl AssertJumpEdge(x: Statement)
+AssertJumpEdge(x) :- edge(x, ), !IsJump(x).
+.output AssertJumpEdge
 
 // statement is a binary operator and has two distinct argument variables
 .decl distinctArgs2(stmt:Statement, op1:Variable, op2:Variable)
@@ -229,27 +457,6 @@ possAccessManipState(var, storeStmt) :- stateReadResult(var, stateReadStmt),
 			     	        op_SSTORE(storeStmt, stateLocVar2, stateVal),
                                         value(stateLocVar, stateLoc), value(stateLocVar2, stateLoc),
 					manipulable(stateVal), !inaccessible(storeStmt).
-
-//manipulable(var) :- possAccessManipState(var, storeStmt), !inaccessible(storeStmt).
-//manipulable(var) :- possAccessManipState(var, storeStmt),
-                    //!controlsWith(_, storeStmt, _).
-//manipulable(var) :- possAccessManipState(var, storeStmt),
-                    //controlsWith(_, storeStmt, cond), manipulable(cond).
-
-
-// Check that all paths from root to a statment n MUST go through some node in a set S.
-
-// stmt is a SSTORE to location loc, writing a non-manipulable value or a constant.
-//.decl storenonManipAtLoc(stmt:Statement, loc:Value)
-//storenonManipAtLoc(stmt, loc) :- op_SSTORE(stmt, var, val), value(var, loc), !nonConstManip(val).
-
-//edgeNotIncidentOnLocStores(u, v, loc) :- edge(u, v), !storenonManipAtLoc(u, loc), !storenonManipAtLoc(v, loc).
-//entryReachesMinusLocStores(stmt, _) :- entry(stmt).
-//entryReachesMinusLocStores(stmt, loc) :- edgeNotIncidentOnLocStores(u, stmt, loc), entryReachesMinusLocStores(u, loc).
-
-
-// locOverWrittenBefore(loc, stmt) :- reaches(e, s), entry(e), storeAtLoc(s, loc),
-
 
 // A manipulable value which is non-constant, i.e. input-dependent.
 .decl nonConstManipulable(var:Variable)
@@ -324,27 +531,4 @@ checkedCallStateUpdate(callStmt) :- callResult(resVar, callStmt), depends(cond, 
 checkedCallStateUpdate(callStmt) :- callResult(resVar, callStmt), depends(stateVar, resVar),
 				    use(stateVar, storeStmt, _), op(storeStmt, "SSTORE").
 
-.decl uncheckedCall(u:Statement)
-.output uncheckedCall
-uncheckedCall(u) :- callResult(_, u), !checkedCallThrows(u), !checkedCallStateUpdate(u).
 
-// UNSECURED BALANCE
-
-.decl fromCallValue(var:Variable)
-fromCallValue(var) :- depends(var, callValVar), def(callValVar, callValStmt), op(callValStmt, "CALLVALUE").
-.decl usefulValue(var:Variable)
-usefulValue(var) :- !value(var, "0x0"), !fromCallValue(var), def(var, _).
-
-// A call statement satisfies this relation if its target can be manipulated (and is not constant), it actually sends some value, and it's actually callable.
-.decl unsecuredValueSend(stmt:Statement)
-.output unsecuredValueSend
-unsecuredValueSend(stmt) :- op_CALL(stmt, _, target, val, _, _, _, _), nonConstManipulable(target), usefulValue(val), !inaccessible(stmt).
-
-// SUICIDE
-.decl accessibleSuicide(stmt:Statement)
-.output accessibleSuicide
-accessibleSuicide(stmt) :- !inaccessible(stmt), op(stmt, "SUICIDE").
-
-
-// Add overwrite check,
-// Add manipulable block when equality comparison with an address
