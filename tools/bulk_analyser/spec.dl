@@ -344,13 +344,13 @@ InLoop(s,t) :-
   CanReach(t,s),
   s != t.
 
-        //// ASSERTION
-        .decl AssertLoopsAreStructured(s:Statement)
-	    .output AssertLoopsAreStructured
-        AssertLoopsAreStructured(h) :-
-		  BasicBlockHead(_,h),
-		  InLoop(h,_),
-		  !InStructuredLoop(h,_).
+//// ASSERTION
+.decl AssertLoopsAreStructured(s:Statement)
+.output AssertLoopsAreStructured
+AssertLoopsAreStructured(h) :-
+  BasicBlockHead(_,h),
+  InLoop(h,_),
+  !InStructuredLoop(h,_).
 
 
 // statement is a binary operator and has two distinct argument variables
