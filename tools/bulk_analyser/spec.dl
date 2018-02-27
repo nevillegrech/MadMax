@@ -26,7 +26,7 @@
 // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#include "unstructured_loop_detector.dl"
+//#include "unstructured_loop_detector.dl"
 
 .type Statement
 .type Variable
@@ -121,8 +121,6 @@ depends(x, z) :- depends(x, y), depends(y, z).
 .decl Exit(s:Statement)
 .decl IsStatement(s:Statement)
 
-.output Entry
-
 IsStatement(s) :- op(s, _).
 
 Entry(s) :- IsStatement(s), !edge(_,s).
@@ -151,8 +149,6 @@ BasicBlockHead(s,h) :- BasicBlockHead(prev,h), NextInSameBasicBlock(prev,s).
  .plan 1:(2,1)
 
 
-.output BasicBlockHead
-
 // Reachability and Dominance
 
 .decl CanReach(s:Statement, t:Statement)
@@ -160,18 +156,6 @@ BasicBlockHead(s,h) :- BasicBlockHead(prev,h), NextInSameBasicBlock(prev,s).
 CanReach(s,s) :- IsStatement(s).
 CanReach(s,t) :- edge(s,t).
 CanReach(s,t) :- CanReach(s,v), edge(v,t).
-
-
-//// ASSERTION
-.decl AssertStatementsReachable(s:Statement)
-.output AssertStatementsReachable
-.decl HelperStatementsReachable(s:Statement)
-// there may be multiple entries
-HelperStatementsReachable(s) :-
-  CanReach(entry,s), Entry(entry).
-
-AssertStatementsReachable(s) :-
-  IsStatement(s), !HelperStatementsReachable(s).
 
 
 // defined on basic blocks, identified by their first instruction
@@ -183,12 +167,6 @@ SuccessorBB(next,prev) :-
 .decl PredecessorBB(prev:Statement, next:Statement)
 PredecessorBB(prev,next) :-
   SuccessorBB(next,prev).
-
-
-        //// ASSERTION
-        .decl AssertSuccessorWellDefined(s:Statement)
-	    .output AssertSuccessorWellDefined
-        AssertSuccessorWellDefined(s) :- SuccessorBB(s,_), !BasicBlockHead(_,s).
 
 
 // Both arguments are basic block heads
@@ -236,7 +214,6 @@ PostDominates(postdominator,s) :-
 
 .output PostDominates
 
-
 //// Recognize structured loops
 
 .decl StructuredLoopBackEdge(from:Statement, to:Statement)
@@ -273,35 +250,78 @@ InnermostStructuredLoop(loophead) :-
   StructuredLoopHead(loophead),
   !ContainsInnerStructuredLoop(loophead,_).
 
-.output InnermostStructuredLoop
+// var is the result of a CALL operation, stmt
+.decl callResult(var:Variable, stmt:Statement)
+callResult(var, stmt) :- callStmt(stmt), def(var, stmt).        
 
-// The most general definition of a loop-like structure: in same SCC
-.decl InLoop(s:Statement, t:Statement)
-InLoop(s,t) :-
-  CanReach(s,t),
-  CanReach(t,s),
-  s != t.
+.decl checkedCallThrows(callStmt:Statement, throwStmt: Statement)
+checkedCallThrows(callStmt, throwStmt) :-
+  callResult(resVar, callStmt),
+  depends(cond, resVar),
+  controlsWith(_, throwStmtHead, cond),
+  BasicBlockHead(throwStmt, throwStmtHead),
+  isThrow(throwStmt).
 
-//// ASSERTION
-.decl AssertLoopsAreStructured(s:Statement)
-.output AssertLoopsAreStructured
-AssertLoopsAreStructured(h) :-
-  BasicBlockHead(_,h),
-  InLoop(h,_),
-  !InStructuredLoop(h,_).
+checkedCallThrows(callStmt, throwStmt) :-
+  callResult(resVar, callStmt),
+  depends(cond, resVar),
+  use(cond, throwStmt, _),
+  isThrow(throwStmt).
 
+.decl checkedCallStateUpdate(callStmt:Statement, storeStmt: Statement)
+checkedCallStateUpdate(callStmt, storeStmt) :-
+  op(storeStmt, "SSTORE"),
+  BasicBlockHead(storeStmt, storeStmtHead), 
+  controlsWith(_, storeStmtHead, cond),
+  depends(cond, resVar),
+  callResult(resVar, callStmt).
 
-// var is the result of a SLOAD operation, stmt
-.decl sloadResult(var:Variable, stmt:Statement)
-sloadResult(var, stmt) :- op(stmt, "SLOAD"), def(var, stmt).
+checkedCallStateUpdate(callStmt, storeStmt) :-
+  callResult(resVar, callStmt),
+  depends(stateVar, resVar),
+  op_SSTORE(storeStmt, _, stateVar).
+
+//TODO Create less conservative version of "depends"
+//TODO Create less conservative version of "depends"
+//TODO Create less conservative version of "depends"
+
+// x controls whether y is executed.
+.decl Controls(x:Statement, y:Statement)
+Controls(xHead, yHead) :-
+  BasicBlockHead(x, xHead),
+  edge(x, w1),
+  edge(x, w2),
+  op(x, "JUMPI"),
+  Dominates(w1, yHead),
+  !Dominates(w2, yHead).
+
+// useful ?
+Controls(xHead, yHead) :-
+  op(x, "THROWI"),
+  BasicBlockHead(x, xHead),
+  Dominates(xHead, yHead).
+
+Controls(x, z) :- Controls(x, y), Controls(y, z). // Transitivity
+
+// var is the guard variable of some conditional jump or throw stmt
+.decl conditionVar(var: Variable, stmt:Statement)
+conditionVar(var, stmt) :- op(stmt, "THROWI"), use(var, stmt, _).
+conditionVar(var, stmt) :- op_JUMPI(stmt, _, var).
+
+// x controls whether y executes by the value in cond
+.decl controlsWith(x:Statement, y:Statement, cond:Variable)
+controlsWith(xHead, yHead, cond) :-
+  Controls(xHead, yHead),
+  BasicBlockHead(x, xHead),
+  conditionVar(cond, x).
+
 
 // var is the result of a CALL operation, stmt
 .decl callStmt(stmt:Statement)
-callStmt( stmt) :- op(stmt, "CALL").
-callStmt( stmt) :- op(stmt, "CALLCODE").
-callStmt( stmt) :- op(stmt, "DELEGATECALL").
-callStmt( stmt) :- op(stmt, "STATICCALL").
-
+callStmt(stmt) :- op(stmt, "CALL").
+callStmt(stmt) :- op(stmt, "CALLCODE").
+callStmt(stmt) :- op(stmt, "DELEGATECALL").
+callStmt(stmt) :- op(stmt, "STATICCALL").
 
 // var is the result of a SSTORE operation, stmt
 .decl sstoreStmt(stmt:Statement)
@@ -309,36 +329,95 @@ sstoreStmt( stmt) :- op(stmt, "SSTORE").
 
 .decl LoopExitCond(cond: Variable, x: Statement)
       
-LoopExitCond(cond, x) :-
-  op(jmpi, "JUMPI"), // TODO: only predicate
-  use(cond, jmpi, 0),
-  InStructuredLoop(jmpi, x),
+LoopExitCond(cond, loop) :-
+  op_JUMPI(jmpi, _, cond),
+  InStructuredLoop(jmpi, loop),
   edge(jmpi, out),
-  !InStructuredLoop(out, x).
+  !InStructuredLoop(out, loop).
+
+.output LoopExitCond
       
+// var is the result of a SLOAD operation, stmt
+.decl sloadResult(var:Variable, stmt:Statement)
+sloadResult(var, stmt) :-
+  op(stmt, "SLOAD"),
+  def(var, stmt).
+
 .decl dynamicBound(x:Statement)
 .output dynamicBound
         
-dynamicBound(x) :-
-  InStructuredLoop(sloadStmt, x),
+dynamicBound(loop) :-
+  InStructuredLoop(sloadStmt, loop),
+  !PossiblyResumableLoop(loop),
   sloadResult(resVar, sloadStmt),
-  LoopExitCond(cond, x),
-  depends(cond, resVar).
+  LoopExitCond(cond, loop),
+  depends(cond, resVar),
+  InductionVariable(v, loop),
+  depends(cond, v).
 
+
+// Not a true definition
+// We only consider induction variables that are monotonically increasing.
+.decl InductionVariable(v:Variable, loop: Statement)
+.output InductionVariable
+        
+InductionVariable(v, loop) :-
+  InStructuredLoop(addStmt, loop),
+  def(v, addStmt),
+  use(v, addStmt, _),
+  op(addStmt, "ADD"),
+  InStructuredLoop(otherStmt, loop),
+  otherStmt != addStmt,
+  !def(v, otherStmt).
+
+.decl InductionVariableInitialisedFromStorage(v:Variable, loop: Statement, loadStmt: Statement)
+.output InductionVariableInitialisedFromStorage
+
+InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
+  sloadResult(resVar, loadStmt),
+  depends(v, resVar),
+  InductionVariable(v, loop).
+      
+
+.decl InductionVariableSavedToStorage(v:Variable, loop: Statement, storeStmt: Statement)
+.output InductionVariableSavedToStorage
+
+InductionVariableSavedToStorage(v, loop, storeStmt) :-
+  InductionVariable(v, loop),
+  op_SSTORE(storeStmt, _, stored),
+  depends(stored, v).
+
+.decl PossiblyResumableLoop(loop: Statement)
+.output PossiblyResumableLoop
+        
+PossiblyResumableLoop(loop) :-
+  InductionVariableInitialisedFromStorage(v, loop, loadStmt),
+  InductionVariableSavedToStorage(v, loop, storeStmt),
+  BasicBlockHead(storeStmt, storeStmtHead),
+  BasicBlockHead(loadStmt, loadStmtHead),
+  !Dominates(storeStmtHead, loadStmtHead).
+                     
 // TODO: too conservative, improve by
-// a) Checking whether loop is statically bound
-// b) Check reentrancy monotonicity
+// a) Check reentrancy monotonicity
+// b) Check whether throw depends on result of call
 .decl checkedWalletGriefing(x:Statement)
 .output checkedWalletGriefing      
-checkedWalletGriefing(callStmt) :- InStructuredLoop(callStmt, _), callStmt(callStmt).
+
+checkedWalletGriefing(callStmt) :-
+  checkedCallThrows(callStmt, throwStmt),
+  InStructuredLoop(callStmt, loop),
+  InStructuredLoop(throwStmt, loop).
 
 
 // TODO: too conservative, improve by
 // a) Checking whether looping on data structure
-// b) Data structure monotonic increase in size
 .decl checkedMassSSTORE(x:Statement)
 .output checkedMassSSTORE
-checkedMassSSTORE(x) :- InStructuredLoop(sstoreStmt, x), sstoreStmt(sstoreStmt).
+checkedMassSSTORE(loop) :-
+  InStructuredLoop(sstoreStmt, loop),
+  InductionVariable(_, loop), // surely must have one
+  sstoreStmt(sstoreStmt),
+  !PossiblyResumableLoop(loop).
 
 /*
 
@@ -360,3 +439,5 @@ unsecuredValueSend(stmt) :- op_CALL(stmt, _, target, val, _, _, _, _), nonConstM
 accessibleSuicide(stmt) :- !inaccessible(stmt), op(stmt, "SUICIDE").
 
 */
+
+
