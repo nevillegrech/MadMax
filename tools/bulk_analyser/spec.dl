@@ -104,6 +104,18 @@ runtimeKnowable("GASPRICE").
 isThrow(stmt) :- op(stmt, "THROW").
 isThrow(stmt) :- op(stmt, "THROWI").
 
+.decl op_flows(op: Opcode)
+      
+op_flows(op) :- binArith(op).
+op_flows(op) :- unaryArith(op).
+op_flows(op) :- ternArith(op).
+.output op_flows
+
+.decl FlowsFrom(x:Variable, y:Variable)
+FlowsFrom(x, x) :- use(x, _, _).
+FlowsFrom(x, x) :- def(x, _).
+FlowsFrom(x, y) :- def(x, stmt), use(y, stmt, _), op(stmt, op), op_flows(op).
+FlowsFrom(x, z) :- FlowsFrom(x, y), FlowsFrom(y, z).
 
 // The value of x depends on the value of y
 // I.e. y is used to calculate x, either directly as an input of the operation
@@ -136,6 +148,7 @@ JumpTarget(s) :- op(s, "JUMPDEST").
 .decl BasicBlockBegin(s:Statement)
 BasicBlockBegin(s) :- Entry(s).
 BasicBlockBegin(s) :- JumpTarget(s).
+BasicBlockBegin(t) :- IsJump(s), edge(s,t).
 
 .decl NextInSameBasicBlock(s:Statement, next:Statement)
 NextInSameBasicBlock(s,next) :-
@@ -167,7 +180,6 @@ SuccessorBB(next,prev) :-
 .decl PredecessorBB(prev:Statement, next:Statement)
 PredecessorBB(prev,next) :-
   SuccessorBB(next,prev).
-
 
 // Both arguments are basic block heads
 // There is a path from the entry to s that does not go through candidate
@@ -257,14 +269,14 @@ callResult(var, stmt) :- callStmt(stmt), def(var, stmt).
 .decl checkedCallThrows(callStmt:Statement, throwStmt: Statement)
 checkedCallThrows(callStmt, throwStmt) :-
   callResult(resVar, callStmt),
-  depends(cond, resVar),
+  FlowsFrom(cond, resVar),
   controlsWith(_, throwStmtHead, cond),
   BasicBlockHead(throwStmt, throwStmtHead),
   isThrow(throwStmt).
 
 checkedCallThrows(callStmt, throwStmt) :-
   callResult(resVar, callStmt),
-  depends(cond, resVar),
+  FlowsFrom(cond, resVar),
   use(cond, throwStmt, _),
   isThrow(throwStmt).
 
@@ -273,17 +285,13 @@ checkedCallStateUpdate(callStmt, storeStmt) :-
   op(storeStmt, "SSTORE"),
   BasicBlockHead(storeStmt, storeStmtHead), 
   controlsWith(_, storeStmtHead, cond),
-  depends(cond, resVar),
+  FlowsFrom(cond, resVar),
   callResult(resVar, callStmt).
 
 checkedCallStateUpdate(callStmt, storeStmt) :-
   callResult(resVar, callStmt),
-  depends(stateVar, resVar),
+  FlowsFrom(stateVar, resVar),
   op_SSTORE(storeStmt, _, stateVar).
-
-//TODO Create less conservative version of "depends"
-//TODO Create less conservative version of "depends"
-//TODO Create less conservative version of "depends"
 
 // x controls whether y is executed.
 .decl Controls(x:Statement, y:Statement)
@@ -351,9 +359,9 @@ dynamicBound(loop) :-
   !PossiblyResumableLoop(loop),
   sloadResult(resVar, sloadStmt),
   LoopExitCond(cond, loop),
-  depends(cond, resVar),
+  FlowsFrom(cond, resVar),
   InductionVariable(v, loop),
-  depends(cond, v).
+  FlowsFrom(cond, v).
 
 
 // Not a true definition
@@ -379,7 +387,7 @@ VariabledDefinedByNonAddInLoop(v, loop) :-
 
 InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
   sloadResult(resVar, loadStmt),
-  depends(v, resVar),
+  FlowsFrom(v, resVar),
   InductionVariable(v, loop).
       
 
@@ -388,8 +396,8 @@ InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
 
 InductionVariableSavedToStorage(v, loop, storeStmt) :-
   InductionVariable(v, loop),
-  op_SSTORE(storeStmt, _, stored),
-  depends(stored, v).
+  FlowsFrom(stored, v),
+  op_SSTORE(storeStmt, _, stored).
 
 .decl PossiblyResumableLoop(loop: Statement)
 .output PossiblyResumableLoop
@@ -403,7 +411,6 @@ PossiblyResumableLoop(loop) :-
                      
 // TODO: too conservative, improve by
 // a) Check reentrancy monotonicity
-// b) Check whether throw depends on result of call
 .decl checkedWalletGriefing(x:Statement)
 .output checkedWalletGriefing      
 
@@ -421,7 +428,7 @@ checkedMassSSTORE(loop) :-
   op_SSTORE(storeStmt, index, _),
   InStructuredLoop(storeStmt, loop),
   InductionVariable(i, loop), // surely must have one
-  depends(index, i),
+  FlowsFrom(index, i),
   !PossiblyResumableLoop(loop).
 
 /*
