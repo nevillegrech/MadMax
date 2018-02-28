@@ -363,12 +363,16 @@ dynamicBound(loop) :-
         
 InductionVariable(v, loop) :-
   InStructuredLoop(addStmt, loop),
+  op(addStmt, "ADD"),
   def(v, addStmt),
   use(v, addStmt, _),
-  op(addStmt, "ADD"),
-  InStructuredLoop(otherStmt, loop),
-  otherStmt != addStmt,
-  !def(v, otherStmt).
+  !VariabledDefinedByNonAddInLoop(v, loop).
+
+.decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
+VariabledDefinedByNonAddInLoop(v, loop) :-
+  InStructuredLoop(stmt, loop),
+  !op(stmt, "ADD"),
+  def(v, stmt).
 
 .decl InductionVariableInitialisedFromStorage(v:Variable, loop: Statement, loadStmt: Statement)
 .output InductionVariableInitialisedFromStorage
@@ -410,13 +414,14 @@ checkedWalletGriefing(callStmt) :-
 
 
 // TODO: too conservative, improve by
-// a) Checking whether looping on data structure
+// a) Checking whether dynamically bound loop, i.e., .length
 .decl checkedMassSSTORE(x:Statement)
 .output checkedMassSSTORE
 checkedMassSSTORE(loop) :-
-  InStructuredLoop(sstoreStmt, loop),
-  InductionVariable(_, loop), // surely must have one
-  sstoreStmt(sstoreStmt),
+  op_SSTORE(storeStmt, index, _),
+  InStructuredLoop(storeStmt, loop),
+  InductionVariable(i, loop), // surely must have one
+  depends(index, i),
   !PossiblyResumableLoop(loop).
 
 /*
