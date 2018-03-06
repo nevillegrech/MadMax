@@ -33,6 +33,7 @@
 .type Opcode
 .type Value
 .type Block
+.type Function
       
 // INPUT
 
@@ -52,6 +53,14 @@
 
 isBlock(b) :- block(_, b).
 
+.decl in_function(b:Block, t:Function)
+.input in_function
+
+.decl StatementInPublicFunction(s: Statement, f: Function)
+
+StatementInPublicFunction(s, f) :-
+  block(s, b),
+  in_function(b, f).
        
 // Requires dominator, CALL, JUMPI, SSTORE relations.
 .decl op_CALL(stmt:Statement, gas:Variable, target:Variable, value:Variable, data_start:Variable, data_length:Variable, return_start:Variable, return_length:Variable)
@@ -267,6 +276,8 @@ InnermostStructuredLoop(loophead) :-
 callResult(var, stmt) :- callStmt(stmt), def(var, stmt).        
 
 .decl checkedCallThrows(callStmt:Statement, throwStmt: Statement)
+.output checkedCallThrows
+
 checkedCallThrows(callStmt, throwStmt) :-
   callResult(resVar, callStmt),
   FlowsFrom(cond, resVar),
@@ -351,18 +362,16 @@ sloadResult(var, stmt) :-
   op(stmt, "SLOAD"),
   def(var, stmt).
 
-.decl dynamicBound(x:Statement)
+.decl dynamicBound(x:Statement, dynVar:Variable)
 .output dynamicBound
         
-dynamicBound(loop) :-
+dynamicBound(loop, resVar) :-
   InStructuredLoop(sloadStmt, loop),
-  !PossiblyResumableLoop(loop),
   sloadResult(resVar, sloadStmt),
   LoopExitCond(cond, loop),
   FlowsFrom(cond, resVar),
   InductionVariable(v, loop),
   FlowsFrom(cond, v).
-
 
 // Not a true definition
 // We only consider induction variables that are monotonically increasing.
@@ -408,29 +417,118 @@ PossiblyResumableLoop(loop) :-
   BasicBlockHead(storeStmt, storeStmtHead),
   BasicBlockHead(loadStmt, loadStmtHead),
   !Dominates(storeStmtHead, loadStmtHead).
-                     
+
+        
+.decl CallAddressFromStorage(loadStmt:Statement, callStmt:Statement)
+.output CallAddressFromStorage
+      
+CallAddressFromStorage(loadStmt, callStmt) :-
+  sloadResult(resVar, loadStmt),
+  FlowsFrom(target, resVar),
+  op_CALL(callStmt, _, target, _, _, _, _, _).
+
+.decl InductiveMassCall(callStmt:Statement, loop:Statement)
+.output InductiveMassCall
+        
+InductiveMassCall(callStmt, loop) :-
+  CallAddressFromStorage(loadStmt, callStmt),
+  use(index, loadStmt, _),
+  depends(index, var),
+  InductionVariable(var, loop).
+
 // TODO: too conservative, improve by
 // a) Check reentrancy monotonicity
 .decl checkedWalletGriefing(x:Statement)
 .output checkedWalletGriefing      
 
+        
 checkedWalletGriefing(callStmt) :-
-  checkedCallThrows(callStmt, throwStmt),
+  InductiveMassCall(callStmt, loop),        
   InStructuredLoop(callStmt, loop),
-  InStructuredLoop(throwStmt, loop).
+  checkedCallThrows(callStmt, throwStmt),
+  InStructuredLoop(throwStmt, loop),
+  !PossiblyResumableLoop(loop).
 
 
-// TODO: too conservative, improve by
-// a) Checking whether dynamically bound loop, i.e., .length
 .decl checkedMassSSTORE(x:Statement)
 .output checkedMassSSTORE
-checkedMassSSTORE(loop) :-
+checkedMassSSTORE(storeStmt) :-
+  IncreasedStorageOnPublicFunction(_, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  FlowsFrom(index, i),
+  FlowsFrom(index, storeOffsetVar),  
   op_SSTORE(storeStmt, index, _),
   InStructuredLoop(storeStmt, loop),
   InductionVariable(i, loop), // surely must have one
-  FlowsFrom(index, i),
+  PossibleArrayIterator(loop, _, arrayId),
   !PossiblyResumableLoop(loop).
 
+.type Array
+      
+.decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable)
+.output KeyToOffset
+
+// TODO: check that offset is loaded/stored        
+KeyToOffset(keyVar, storeOffsetVar) :-
+  op(shaStmt,"SHA3"),
+  BasicBlockHead(shaStmt, block),
+  BasicBlockHead(storeMemStmt, block),
+  op(storeMemStmt,"MSTORE"),
+  //use(size, shaStmt, 2),
+  use(keyVar, storeMemStmt, 2),
+  use(start, shaStmt, 1),
+  use(start2, storeMemStmt, 1),
+  value(start2, startVal),
+  value(start, startVal),
+  //value(size, sizeVal),
+  def(storeOffsetVar, shaStmt).
+
+
+.decl ArrayIdToStorageIndex(c:Value, storeOffsetVar:Variable)
+.output ArrayIdToStorageIndex       
+
+ArrayIdToStorageIndex(c, storeOffsetVar) :-
+   KeyToOffset(keyVar, storeOffsetVar),
+   def(keyVar, constStmt),
+   op(constStmt, "CONST"),
+   value(keyVar, c).
+
+.decl MapKeyToStorageIndex(keyVar:Variable, storeOffsetVar:Variable)
+.output MapKeyToStorageIndex      
+
+MapKeyToStorageIndex(keyVar, storeOffsetVar) :-
+   KeyToOffset(keyVar, storeOffsetVar),
+   def(keyVar, constStmt),
+   !op(constStmt, "CONST").
+
+
+.decl PossibleArraySizeVariable(resVar:Variable, a:Value, storeOffset:Variable)
+
+PossibleArraySizeVariable(resVar, a, storeOffset) :-
+  sloadResult(resVar, loadStmt),
+  use(index, loadStmt, _),
+  value(index, a),
+  ArrayIdToStorageIndex(a, storeOffset).
+
+.decl IncreasedStorageOnPublicFunction(f: Function, arrayId: Value)
+.output IncreasedStorageOnPublicFunction
+
+IncreasedStorageOnPublicFunction(f, arrayId) :-
+  PossibleArraySizeVariable(sizeVar, arrayId, _),
+  use(sizeVar, addStmt, _),
+  op(addStmt, "ADD"),
+  StatementInPublicFunction(addStmt, f),
+  def(newSizeVar, addStmt),
+  op_SSTORE(storeStmt, index, newSizeVar),
+  StatementInPublicFunction(storeStmt, f), // not sure about this
+  value(index, arrayId).
+
+.decl PossibleArrayIterator(loop:Statement, resVar:Variable, arrayId:Value)
+.output PossibleArrayIterator       
+
+PossibleArrayIterator(loop, resVar, arrayId) :-
+  dynamicBound(loop, resVar),
+  PossibleArraySizeVariable(resVar, arrayId, _).
 /*
 
 // UNSECURED BALANCE
