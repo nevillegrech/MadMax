@@ -468,7 +468,9 @@ checkedMassSSTORE(storeStmt) :-
 .decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable)
 .output KeyToOffset
 
-// TODO: check that offset is loaded/stored        
+// keyVar is a variable whose valued is SHA3ed to yield storeOffsetVar
+// TODO: check that offset is loaded/stored
+// TODO: use alias analysis
 KeyToOffset(keyVar, storeOffsetVar) :-
   op(shaStmt,"SHA3"),
   BasicBlockHead(shaStmt, block),
@@ -483,32 +485,33 @@ KeyToOffset(keyVar, storeOffsetVar) :-
   //value(size, sizeVal),
   def(storeOffsetVar, shaStmt).
 
-
 .decl ArrayIdToStorageIndex(c:Value, storeOffsetVar:Variable)
-.output ArrayIdToStorageIndex       
+.output ArrayIdToStorageIndex  	 
 
-ArrayIdToStorageIndex(c, storeOffsetVar) :-
+// the constant value that’s SHA3ed to yield storeOffsetVar is c
+ArrayIdToStorageIndex(const, storeOffsetVar) :-
    KeyToOffset(keyVar, storeOffsetVar),
    def(keyVar, constStmt),
    op(constStmt, "CONST"),
-   value(keyVar, c).
+   value(keyVar, const).
 
 .decl MapKeyToStorageIndex(keyVar:Variable, storeOffsetVar:Variable)
-.output MapKeyToStorageIndex      
+.output MapKeyToStorageIndex 	 
 
 MapKeyToStorageIndex(keyVar, storeOffsetVar) :-
    KeyToOffset(keyVar, storeOffsetVar),
-   def(keyVar, constStmt),
-   !op(constStmt, "CONST").
+   def(keyVar, nonConstStmt),
+   !op(nonConstStmt, "CONST").
 
+.decl PossibleArraySizeVariable(resVar:Variable, const:Value, storeOffset:Variable)
 
-.decl PossibleArraySizeVariable(resVar:Variable, a:Value, storeOffset:Variable)
-
-PossibleArraySizeVariable(resVar, a, storeOffset) :-
+// resVar is possibly the size of an array identified by const: when reading directly at address const,
+// we get the size of an array. When we want its contents, we need to take the SHA3 of const.
+PossibleArraySizeVariable(resVar, const, storeOffset) :-
   sloadResult(resVar, loadStmt),
   use(index, loadStmt, _),
-  value(index, a),
-  ArrayIdToStorageIndex(a, storeOffset).
+  value(index, const),
+  ArrayIdToStorageIndex(const, storeOffset).
 
 .decl IncreasedStorageOnPublicFunction(f: Function, arrayId: Value)
 .output IncreasedStorageOnPublicFunction
@@ -524,30 +527,10 @@ IncreasedStorageOnPublicFunction(f, arrayId) :-
   value(index, arrayId).
 
 .decl PossibleArrayIterator(loop:Statement, resVar:Variable, arrayId:Value)
-.output PossibleArrayIterator       
+.output PossibleArrayIterator  	 
 
 PossibleArrayIterator(loop, resVar, arrayId) :-
   dynamicBound(loop, resVar),
   PossibleArraySizeVariable(resVar, arrayId, _).
-/*
-
-// UNSECURED BALANCE
-
-.decl fromCallValue(var:Variable)
-fromCallValue(var) :- depends(var, callValVar), def(callValVar, callValStmt), op(callValStmt, "CALLVALUE").
-.decl usefulValue(var:Variable)
-usefulValue(var) :- !value(var, "0x0"), !fromCallValue(var), def(var, _).
-
-// A call statement satisfies this relation if its target can be manipulated (and is not constant), it actually sends some value, and it's actually callable.
-.decl unsecuredValueSend(stmt:Statement)
-.output unsecuredValueSend
-unsecuredValueSend(stmt) :- op_CALL(stmt, _, target, val, _, _, _, _), nonConstManipulable(target), usefulValue(val), !inaccessible(stmt).
-
-// SUICIDE
-.decl accessibleSuicide(stmt:Statement)
-.output accessibleSuicide
-accessibleSuicide(stmt) :- !inaccessible(stmt), op(stmt, "SUICIDE").
-
-*/
 
 
