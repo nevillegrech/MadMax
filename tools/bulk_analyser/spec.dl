@@ -28,6 +28,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //#include "unstructured_loop_detector.dl"
 
+
+
+// NOTE: Relations starting in lowercase are mostly legacy
+
 .type Statement
 .type Variable
 .type Opcode
@@ -61,8 +65,12 @@ isBlock(b) :- block(_, b).
 StatementInPublicFunction(s, f) :-
   block(s, b),
   in_function(b, f).
-       
-// Requires dominator, CALL, JUMPI, SSTORE relations.
+
+//
+// *** INSTRUCTIONS ***
+//
+
+// Requires CALL, JUMPI, SSTORE relations.
 .decl op_CALL(stmt:Statement, gas:Variable, target:Variable, value:Variable, data_start:Variable, data_length:Variable, return_start:Variable, return_length:Variable)
 .input op_CALL
 .decl op_JUMPI(stmt:Statement, dest:Variable, cond:Variable)
@@ -109,34 +117,40 @@ runtimeKnowable("CALLDATASIZE").
 runtimeKnowable("CODESIZE").
 runtimeKnowable("GASPRICE").
 
-.decl isThrow(stmt:Statement)
-isThrow(stmt) :- op(stmt, "THROW").
-isThrow(stmt) :- op(stmt, "THROWI").
+.decl IsThrow(stmt:Statement)
+IsThrow(stmt) :- op(stmt, "THROW").
+IsThrow(stmt) :- op(stmt, "THROWI").
 
-.decl op_flows(op: Opcode)
-      
-op_flows(op) :- binArith(op).
-op_flows(op) :- unaryArith(op).
-op_flows(op) :- ternArith(op).
-.output op_flows
+// var is the result of a SLOAD operation, stmt
+.decl sloadResult(var:Variable, stmt:Statement)
+sloadResult(var, stmt) :-
+  op(stmt, "SLOAD"),
+  def(var, stmt).
 
-.decl FlowsFrom(x:Variable, y:Variable)
-FlowsFrom(x, x) :- use(x, _, _).
-FlowsFrom(x, x) :- def(x, _).
-FlowsFrom(x, y) :- def(x, stmt), use(y, stmt, _), op(stmt, op), op_flows(op).
-FlowsFrom(x, z) :- FlowsFrom(x, y), FlowsFrom(y, z).
-
-// The value of x depends on the value of y
-// I.e. y is used to calculate x, either directly as an input of the operation
-// that defined x, or transitively.
-.decl depends(x:Variable, y:Variable)
-depends(x, x) :- use(x, _, _).
-depends(x, x) :- def(x, _).
-depends(x, y) :- def(x, stmt), use(y, stmt, _).
-depends(x, z) :- depends(x, y), depends(y, z).
+.decl FlowOp(op: Opcode)
+// Represents operations through which data can "flow"      
+FlowOp(op) :- binArith(op).
+FlowOp(op) :- unaryArith(op).
+FlowOp(op) :- ternArith(op).
 
 
-// Basic concepts: entry/exit, basic blocks
+
+// var is the result of a CALL operation, stmt
+.decl CallStmt(stmt:Statement)
+CallStmt(stmt) :- op(stmt, "CALL").
+CallStmt(stmt) :- op(stmt, "CALLCODE").
+CallStmt(stmt) :- op(stmt, "DELEGATECALL").
+CallStmt(stmt) :- op(stmt, "STATICCALL").
+
+
+// var is the result of a CALL operation, stmt
+.decl CallResult(var:Variable, stmt:Statement)
+
+CallResult(var, stmt) :- CallStmt(stmt), def(var, stmt).
+
+//
+// *** CONTROL-FLOW ANALYSIS CONCEPTS *** 
+//
 
 .decl Entry(s:Statement)
 .decl Exit(s:Statement)
@@ -170,9 +184,10 @@ BasicBlockHead(s,s) :- BasicBlockBegin(s).
 BasicBlockHead(s,h) :- BasicBlockHead(prev,h), NextInSameBasicBlock(prev,s).
  .plan 1:(2,1)
 
-
-// Reachability and Dominance
-
+//
+// *** Reachability and Dominance ***
+//
+       
 .decl CanReach(s:Statement, t:Statement)
 
 CanReach(s,s) :- IsStatement(s).
@@ -225,84 +240,33 @@ Dominates(dominator,s) :-
   BasicBlockHead(_, s),
   !DoesNotDominate(dominator,s).
 
-.output Dominates
-
 .decl PostDominates(postdominator:Statement, s:Statement)
 PostDominates(postdominator,s) :-
   BasicBlockHead(_, postdominator),
   BasicBlockHead(_, s),
   !DoesNotPostDominate(postdominator,s).
 
-.output PostDominates
+//
+// *** Data flow and dependency analysis ***
+//
 
-//// Recognize structured loops
+// The value of x flows from the value of y
+// I.e. y is used to calculate x, for a limited number of operations
+// See Also: DependsOn
+.decl FlowsFrom(x:Variable, y:Variable)
+FlowsFrom(x, x) :- use(x, _, _).
+FlowsFrom(x, x) :- def(x, _).
+FlowsFrom(x, y) :- def(x, stmt), use(y, stmt, _), op(stmt, op), FlowOp(op).
+FlowsFrom(x, z) :- FlowsFrom(x, y), FlowsFrom(y, z).
 
-.decl StructuredLoopBackEdge(from:Statement, to:Statement)
-.decl StructuredLoopHead(s:Statement)
-
-StructuredLoopBackEdge(from,to),
-StructuredLoopHead(to) :-
-  edge(from,to),
-  BasicBlockHead(from,h),
-  Dominates(to,h).
-
-// Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
-.decl InStructuredLoop(s:Statement, loophead:Statement)
-InStructuredLoop(backEdgeNode,loophead) :- StructuredLoopBackEdge(backEdgeNode,loophead).
-InStructuredLoop(loophead,loophead) :- StructuredLoopHead(loophead).
-// Can reach back edge node without going through loop head!
-InStructuredLoop(s,loophead) :-
-  InStructuredLoop(other,loophead),
-  edge(s,other),
-  other != loophead.
-
-.output StructuredLoopHead
-.output InStructuredLoop
-
-.decl ContainsInnerStructuredLoop(loophead:Statement,innerLoopHead:Statement)
-ContainsInnerStructuredLoop(loophead,innerLoopHead) :-
-  StructuredLoopHead(loophead),
-  StructuredLoopHead(innerLoopHead),
-  InStructuredLoop(innerLoopHead,loophead),
-  innerLoopHead != loophead.
-  
-.decl InnermostStructuredLoop(loophead:Statement)
-InnermostStructuredLoop(loophead) :-
-  StructuredLoopHead(loophead),
-  !ContainsInnerStructuredLoop(loophead,_).
-
-// var is the result of a CALL operation, stmt
-.decl callResult(var:Variable, stmt:Statement)
-callResult(var, stmt) :- callStmt(stmt), def(var, stmt).        
-
-.decl checkedCallThrows(callStmt:Statement, throwStmt: Statement)
-.output checkedCallThrows
-
-checkedCallThrows(callStmt, throwStmt) :-
-  callResult(resVar, callStmt),
-  FlowsFrom(cond, resVar),
-  controlsWith(_, throwStmtHead, cond),
-  BasicBlockHead(throwStmt, throwStmtHead),
-  isThrow(throwStmt).
-
-checkedCallThrows(callStmt, throwStmt) :-
-  callResult(resVar, callStmt),
-  FlowsFrom(cond, resVar),
-  use(cond, throwStmt, _),
-  isThrow(throwStmt).
-
-.decl checkedCallStateUpdate(callStmt:Statement, storeStmt: Statement)
-checkedCallStateUpdate(callStmt, storeStmt) :-
-  op(storeStmt, "SSTORE"),
-  BasicBlockHead(storeStmt, storeStmtHead), 
-  controlsWith(_, storeStmtHead, cond),
-  FlowsFrom(cond, resVar),
-  callResult(resVar, callStmt).
-
-checkedCallStateUpdate(callStmt, storeStmt) :-
-  callResult(resVar, callStmt),
-  FlowsFrom(stateVar, resVar),
-  op_SSTORE(storeStmt, _, stateVar).
+// The value of x depends on the value of y
+// I.e. y is used to calculate x, either directly as an input of the operation
+// that defined x, or transitively.
+.decl DependsOn(x:Variable, y:Variable)
+DependsOn(x, x) :- use(x, _, _).
+DependsOn(x, x) :- def(x, _).
+DependsOn(x, y) :- def(x, stmt), use(y, stmt, _).
+DependsOn(x, z) :- DependsOn(x, y), DependsOn(y, z).
 
 // x controls whether y is executed.
 .decl Controls(x:Statement, y:Statement)
@@ -323,59 +287,116 @@ Controls(xHead, yHead) :-
 Controls(x, z) :- Controls(x, y), Controls(y, z). // Transitivity
 
 // var is the guard variable of some conditional jump or throw stmt
-.decl conditionVar(var: Variable, stmt:Statement)
-conditionVar(var, stmt) :- op(stmt, "THROWI"), use(var, stmt, _).
-conditionVar(var, stmt) :- op_JUMPI(stmt, _, var).
+.decl ConditionVar(var: Variable, stmt:Statement)
+ConditionVar(var, stmt) :- op(stmt, "THROWI"), use(var, stmt, _).
+ConditionVar(var, stmt) :- op_JUMPI(stmt, _, var).
 
 // x controls whether y executes by the value in cond
-.decl controlsWith(x:Statement, y:Statement, cond:Variable)
-controlsWith(xHead, yHead, cond) :-
+.decl ControlsWith(x:Statement, y:Statement, cond:Variable)
+ControlsWith(xHead, yHead, cond) :-
   Controls(xHead, yHead),
   BasicBlockHead(x, xHead),
-  conditionVar(cond, x).
+  ConditionVar(cond, x).
 
 
-// var is the result of a CALL operation, stmt
-.decl callStmt(stmt:Statement)
-callStmt(stmt) :- op(stmt, "CALL").
-callStmt(stmt) :- op(stmt, "CALLCODE").
-callStmt(stmt) :- op(stmt, "DELEGATECALL").
-callStmt(stmt) :- op(stmt, "STATICCALL").
 
-// var is the result of a SSTORE operation, stmt
-.decl sstoreStmt(stmt:Statement)
-sstoreStmt( stmt) :- op(stmt, "SSTORE").
+//// ** Recognize structured loops and related stuff **
 
+.decl StructuredLoopBackEdge(from:Statement, to:Statement)
+.decl StructuredLoopHead(s:Statement)
+
+StructuredLoopBackEdge(from,to),
+StructuredLoopHead(to) :-
+  edge(from,to),
+  BasicBlockHead(from,h),
+  Dominates(to,h).
+
+// Detect a loop body *without* also capturing surrounding loops (i.e., not just SCC)
+.decl InStructuredLoop(s:Statement, loophead:Statement)
+InStructuredLoop(backEdgeNode,loophead) :- StructuredLoopBackEdge(backEdgeNode,loophead).
+InStructuredLoop(loophead,loophead) :- StructuredLoopHead(loophead).
+// Can reach back edge node without going through loop head!
+InStructuredLoop(s,loophead) :-
+  InStructuredLoop(other,loophead),
+  edge(s,other),
+  other != loophead.
+
+.output InStructuredLoop
+
+.decl ContainsInnerStructuredLoop(loophead:Statement,innerLoopHead:Statement)
+ContainsInnerStructuredLoop(loophead,innerLoopHead) :-
+  StructuredLoopHead(loophead),
+  StructuredLoopHead(innerLoopHead),
+  InStructuredLoop(innerLoopHead,loophead),
+  innerLoopHead != loophead.
+  
+.decl InnermostStructuredLoop(loophead:Statement)
+InnermostStructuredLoop(loophead) :-
+  StructuredLoopHead(loophead),
+  !ContainsInnerStructuredLoop(loophead,_).
+
+// condVar determintes whether a loop is exited
 .decl LoopExitCond(cond: Variable, x: Statement)
       
-LoopExitCond(cond, loop) :-
-  op_JUMPI(jmpi, _, cond),
+LoopExitCond(condVar, loop) :-
+  op_JUMPI(jmpi, _, condVar),
   InStructuredLoop(jmpi, loop),
   edge(jmpi, out),
   !InStructuredLoop(out, loop).
 
-.output LoopExitCond
-      
-// var is the result of a SLOAD operation, stmt
-.decl sloadResult(var:Variable, stmt:Statement)
-sloadResult(var, stmt) :-
-  op(stmt, "SLOAD"),
-  def(var, stmt).
+//
+//  *** Vulnerability analysis primitives ***
+//
 
-.decl dynamicBound(x:Statement, dynVar:Variable)
-.output dynamicBound
-        
-dynamicBound(loop, resVar) :-
-  InStructuredLoop(sloadStmt, loop),
-  sloadResult(resVar, sloadStmt),
-  LoopExitCond(cond, loop),
+.decl CallSuccessControlsException(callStmt:Statement, throwStmt: Statement)
+.output CallSuccessControlsException
+// The return value of a call (callStmt) controls
+// whether an exception is thrown by throwStmt
+// Either through a control dependency        
+CallSuccessControlsException(callStmt, throwStmt) :-
+  CallResult(resVar, callStmt),
   FlowsFrom(cond, resVar),
+  ControlsWith(_, throwStmtHead, cond),
+  BasicBlockHead(throwStmt, throwStmtHead),
+  IsThrow(throwStmt).
+// Or, directly
+CallSuccessControlsException(callStmt, throwStmt) :-
+  CallResult(resVar, callStmt),
+  FlowsFrom(cond, resVar),
+  use(cond, throwStmt, _),
+  IsThrow(throwStmt).
+
+
+// UNUSED
+.decl CallSuccessControlsStore(callStmt:Statement, storeStmt: Statement)
+CallSuccessControlsStore(callStmt, storeStmt) :-
+  op(storeStmt, "SSTORE"),
+  BasicBlockHead(storeStmt, storeStmtHead), 
+  ControlsWith(_, storeStmtHead, cond),
+  FlowsFrom(cond, resVar),
+  CallResult(resVar, callStmt).
+
+CallSuccessControlsStore(callStmt, storeStmt) :-
+  CallResult(resVar, callStmt),
+  FlowsFrom(stateVar, resVar),
+  op_SSTORE(storeStmt, _, stateVar).
+
+
+.decl DynamicBound(x:Statement, dynVar:Variable)
+// A loop is dynamically bound by the storage state
+// contained in dynVar
+.output DynamicBound
+        
+DynamicBound(loop, dynVar) :-
+  InStructuredLoop(sloadStmt, loop),
+  sloadResult(dynVar, sloadStmt),
+  LoopExitCond(cond, loop),
+  FlowsFrom(cond, dynVar),
   InductionVariable(v, loop),
   FlowsFrom(cond, v).
 
-// Not a true definition
-// We only consider induction variables that are monotonically increasing.
 .decl InductionVariable(v:Variable, loop: Statement)
+// A variable that is monotonically increasing with each successive iteration in loop
 .output InductionVariable
         
 InductionVariable(v, loop) :-
@@ -386,6 +407,7 @@ InductionVariable(v, loop) :-
   !VariabledDefinedByNonAddInLoop(v, loop).
 
 .decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
+// A variable that is defined by any statement other than ADD
 VariabledDefinedByNonAddInLoop(v, loop) :-
   InStructuredLoop(stmt, loop),
   !op(stmt, "ADD"),
@@ -393,7 +415,9 @@ VariabledDefinedByNonAddInLoop(v, loop) :-
 
 .decl InductionVariableInitialisedFromStorage(v:Variable, loop: Statement, loadStmt: Statement)
 .output InductionVariableInitialisedFromStorage
-
+// An induction variable (v for loop) that is initialised through the result of
+// loading something from storage.
+        
 InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
   sloadResult(resVar, loadStmt),
   FlowsFrom(v, resVar),
@@ -402,26 +426,30 @@ InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
 
 .decl InductionVariableSavedToStorage(v:Variable, loop: Statement, storeStmt: Statement)
 .output InductionVariableSavedToStorage
+// An induction variable (v for loop) that is processed and saved to storage
 
 InductionVariableSavedToStorage(v, loop, storeStmt) :-
   InductionVariable(v, loop),
   FlowsFrom(stored, v),
   op_SSTORE(storeStmt, _, stored).
 
+
 .decl PossiblyResumableLoop(loop: Statement)
 .output PossiblyResumableLoop
-        
+// A loop that may be able to resumed if the execution is interrupted
+// Check whether some induction variable is loaded and stored before/after loop.
 PossiblyResumableLoop(loop) :-
   InductionVariableInitialisedFromStorage(v, loop, loadStmt),
   InductionVariableSavedToStorage(v, loop, storeStmt),
   BasicBlockHead(storeStmt, storeStmtHead),
   BasicBlockHead(loadStmt, loadStmtHead),
-  !Dominates(storeStmtHead, loadStmtHead).
+  // Load has to be able to happen before store
+  !Dominates(storeStmtHead, loadStmtHead). 
 
         
 .decl CallAddressFromStorage(loadStmt:Statement, callStmt:Statement)
 .output CallAddressFromStorage
-      
+// Call an address at callStmt that is loaded at loadStmt from storage      
 CallAddressFromStorage(loadStmt, callStmt) :-
   sloadResult(resVar, loadStmt),
   FlowsFrom(target, resVar),
@@ -429,48 +457,28 @@ CallAddressFromStorage(loadStmt, callStmt) :-
 
 .decl InductiveMassCall(callStmt:Statement, loop:Statement)
 .output InductiveMassCall
-        
+// Looping through addresses stored in the storage and calling them
+// TODO: check whether these are real addresses,
+// solidity likes to apply specific masks to addreses.
 InductiveMassCall(callStmt, loop) :-
   CallAddressFromStorage(loadStmt, callStmt),
   use(index, loadStmt, _),
-  depends(index, var),
+  DependsOn(index, var),
   InductionVariable(var, loop).
 
-// TODO: too conservative, improve by
-// a) Check reentrancy monotonicity
-.decl checkedWalletGriefing(x:Statement)
-.output checkedWalletGriefing      
+//
+// *** DATA STRUCTURES YAY ***
+//
 
-        
-checkedWalletGriefing(callStmt) :-
-  InductiveMassCall(callStmt, loop),        
-  InStructuredLoop(callStmt, loop),
-  checkedCallThrows(callStmt, throwStmt),
-  InStructuredLoop(throwStmt, loop),
-  !PossiblyResumableLoop(loop).
-
-
-.decl checkedMassSSTORE(x:Statement)
-.output checkedMassSSTORE
-checkedMassSSTORE(storeStmt) :-
-  IncreasedStorageOnPublicFunction(_, arrayId),
-  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
-  FlowsFrom(index, i),
-  FlowsFrom(index, storeOffsetVar),  
-  op_SSTORE(storeStmt, index, _),
-  InStructuredLoop(storeStmt, loop),
-  InductionVariable(i, loop), // surely must have one
-  PossibleArrayIterator(loop, _, arrayId),
-  !PossiblyResumableLoop(loop).
-
-.type Array
       
 .decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable)
 .output KeyToOffset
 
 // keyVar is a variable whose valued is SHA3ed to yield storeOffsetVar
-// TODO: check that offset is loaded/stored
-// TODO: use alias analysis
+// In the case of an array, only a "fixed" offset is SHA'd
+// In the case of a map, a "key" is appended to a "fixed" offset and SHA'd.
+// We mostly ignore maps for now as these cannot be iterated
+// TODO: use alias analysis to improve soundness/precision
 KeyToOffset(keyVar, storeOffsetVar) :-
   op(shaStmt,"SHA3"),
   BasicBlockHead(shaStmt, block),
@@ -483,7 +491,10 @@ KeyToOffset(keyVar, storeOffsetVar) :-
   value(start2, startVal),
   value(start, startVal),
   //value(size, sizeVal),
-  def(storeOffsetVar, shaStmt).
+  def(storeOffsetVar, shaStmt),
+  FlowsFrom(storeOffsetVarDerivative, storeOffsetVar),
+  use(storeOffsetVarDerivative, storeInst, 1),
+  (op(storeInst, "SSTORE") ; op(storeInst, "SLOAD")).
 
 .decl ArrayIdToStorageIndex(c:Value, storeOffsetVar:Variable)
 .output ArrayIdToStorageIndex  	 
@@ -515,7 +526,8 @@ PossibleArraySizeVariable(resVar, const, storeOffset) :-
 
 .decl IncreasedStorageOnPublicFunction(f: Function, arrayId: Value)
 .output IncreasedStorageOnPublicFunction
-
+// When this public function is called, some array symbolized by arrayId is increased in size
+        
 IncreasedStorageOnPublicFunction(f, arrayId) :-
   PossibleArraySizeVariable(sizeVar, arrayId, _),
   use(sizeVar, addStmt, _),
@@ -523,14 +535,45 @@ IncreasedStorageOnPublicFunction(f, arrayId) :-
   StatementInPublicFunction(addStmt, f),
   def(newSizeVar, addStmt),
   op_SSTORE(storeStmt, index, newSizeVar),
-  StatementInPublicFunction(storeStmt, f), // not sure about this
+  // not sure about the following, what if function calls private function?
+  StatementInPublicFunction(storeStmt, f), 
   value(index, arrayId).
 
 .decl PossibleArrayIterator(loop:Statement, resVar:Variable, arrayId:Value)
 .output PossibleArrayIterator  	 
-
+// A loop, looping through an array
+// Firstly, the loop has to be dynamically bound by some storage var (resVar)
+// And this must be the array's size variable.        
 PossibleArrayIterator(loop, resVar, arrayId) :-
-  dynamicBound(loop, resVar),
+  DynamicBound(loop, resVar),
   PossibleArraySizeVariable(resVar, arrayId, _).
 
+// 
+// ** Specific vulnerabilities **
+//
+
+.decl WalletGriefing(x:Statement)
+.output WalletGriefing      
+
+        
+WalletGriefing(callStmt) :-
+  InductiveMassCall(callStmt, loop),        
+  InStructuredLoop(callStmt, loop),
+  CallSuccessControlsException(callStmt, throwStmt),
+  InStructuredLoop(throwStmt, loop),
+  !PossiblyResumableLoop(loop).
+
+
+.decl checkedMassSSTORE(x:Statement)
+.output checkedMassSSTORE
+checkedMassSSTORE(storeStmt) :-
+  IncreasedStorageOnPublicFunction(_, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  FlowsFrom(index, i),
+  FlowsFrom(index, storeOffsetVar),  
+  op_SSTORE(storeStmt, index, _),
+  InStructuredLoop(storeStmt, loop),
+  InductionVariable(i, loop),
+  PossibleArrayIterator(loop, _, arrayId),
+  !PossiblyResumableLoop(loop).
 
