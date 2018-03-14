@@ -73,7 +73,7 @@ StatementInPublicFunction(s, f) :-
 // Requires CALL, JUMPI, SSTORE relations.
 .decl op_CALL(stmt:Statement, gas:Variable, target:Variable, value:Variable, data_start:Variable, data_length:Variable, return_start:Variable, return_length:Variable)
 .input op_CALL
-.decl op_JUMPI(stmt:Statement, dest:Variable, cond:Variable)
+.decl op_JUMPI(stmt:Statement, dest:Variable, condVar:Variable)
 .input op_JUMPI
 .decl op_SSTORE(stmt:Statement, loc:Variable, val:Variable)
 .input op_SSTORE
@@ -292,11 +292,11 @@ ConditionVar(var, stmt) :- op(stmt, "THROWI"), use(var, stmt, _).
 ConditionVar(var, stmt) :- op_JUMPI(stmt, _, var).
 
 // x controls whether y executes by the value in cond
-.decl ControlsWith(x:Statement, y:Statement, cond:Variable)
-ControlsWith(xHead, yHead, cond) :-
+.decl ControlsWith(x:Statement, y:Statement, condVar:Variable)
+ControlsWith(xHead, yHead, condVar) :-
   Controls(xHead, yHead),
   BasicBlockHead(x, xHead),
-  ConditionVar(cond, x).
+  ConditionVar(condVar, x).
 
 
 
@@ -336,7 +336,7 @@ InnermostStructuredLoop(loophead) :-
   !ContainsInnerStructuredLoop(loophead,_).
 
 // condVar determintes whether a loop is exited
-.decl LoopExitCond(cond: Variable, x: Statement)
+.decl LoopExitCond(condVar: Variable, x: Statement)
       
 LoopExitCond(condVar, loop) :-
   op_JUMPI(jmpi, _, condVar),
@@ -355,16 +355,18 @@ LoopExitCond(condVar, loop) :-
 // Either through a control dependency        
 CallSuccessControlsException(callStmt, throwStmt) :-
   CallResult(resVar, callStmt),
-  FlowsFrom(cond, resVar),
-  ControlsWith(_, throwStmtHead, cond),
+  FlowsFrom(condVar, resVar),
+  ControlsWith(_, throwStmtHead, condVar),
   BasicBlockHead(throwStmt, throwStmtHead),
   IsThrow(throwStmt).
-// Or, directly
+// Or, directly, through a data dependence of the value thrown
 CallSuccessControlsException(callStmt, throwStmt) :-
   CallResult(resVar, callStmt),
-  FlowsFrom(cond, resVar),
-  use(cond, throwStmt, _),
+  FlowsFrom(condVar, resVar),
+  use(condVar, throwStmt, _),
   IsThrow(throwStmt).
+
+/// YS: why FlowsFrom and not DependsOn? Both above and in several places below.
 
 
 // UNUSED
@@ -372,8 +374,8 @@ CallSuccessControlsException(callStmt, throwStmt) :-
 CallSuccessControlsStore(callStmt, storeStmt) :-
   op(storeStmt, "SSTORE"),
   BasicBlockHead(storeStmt, storeStmtHead), 
-  ControlsWith(_, storeStmtHead, cond),
-  FlowsFrom(cond, resVar),
+  ControlsWith(_, storeStmtHead, condVar),
+  FlowsFrom(condVar, resVar),
   CallResult(resVar, callStmt).
 
 CallSuccessControlsStore(callStmt, storeStmt) :-
@@ -386,19 +388,23 @@ CallSuccessControlsStore(callStmt, storeStmt) :-
 // A loop is dynamically bound by the storage state
 // contained in dynVar
 .output DynamicBound
-        
+
+// YS: I don't understand if this is correct. Is it common to have data flow into
+//  condVar *both* from the induction variable and from the dynamic load? And are
+//  both of these necessary?
 DynamicBound(loop, dynVar) :-
   InStructuredLoop(sloadStmt, loop),
   sloadResult(dynVar, sloadStmt),
-  LoopExitCond(cond, loop),
-  FlowsFrom(cond, dynVar),
+  LoopExitCond(condVar, loop),
+  FlowsFrom(condVar, dynVar),
   InductionVariable(v, loop),
-  FlowsFrom(cond, v).
+  FlowsFrom(condVar, v).
 
 .decl InductionVariable(v:Variable, loop: Statement)
 // A variable that is monotonically increasing with each successive iteration in loop
 .output InductionVariable
         
+// YS: strictly speaking, adding does not guarantee increasing...
 InductionVariable(v, loop) :-
   InStructuredLoop(addStmt, loop),
   op(addStmt, "ADD"),
