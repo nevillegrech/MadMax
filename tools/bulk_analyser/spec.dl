@@ -133,8 +133,6 @@ FlowOp(op) :- binArith(op).
 FlowOp(op) :- unaryArith(op).
 FlowOp(op) :- ternArith(op).
 
-
-
 // var is the result of a CALL operation, stmt
 .decl CallStmt(stmt:Statement)
 CallStmt(stmt) :- op(stmt, "CALL").
@@ -147,6 +145,12 @@ CallStmt(stmt) :- op(stmt, "STATICCALL").
 .decl CallResult(var:Variable, stmt:Statement)
 
 CallResult(var, stmt) :- CallStmt(stmt), def(var, stmt).
+
+// var holds the result of executing the GAS opcode
+.decl GasResult(var: Variable, stmt: Statement)
+GasResult(var, stmt) :- op(stmt, "GAS"), def(var, stmt).
+
+
 
 //
 // *** CONTROL-FLOW ANALYSIS CONCEPTS *** 
@@ -323,7 +327,7 @@ InStructuredLoop(s,loophead) :-
 
 .output InStructuredLoop
 
-.decl ContainsInnerStructuredLoop(loophead:Statement,innerLoopHead:Statement)
+.decl ContainsInnerStructuredLoop(loophead: Statement, innerLoopHead: Statement)
 ContainsInnerStructuredLoop(loophead,innerLoopHead) :-
   StructuredLoopHead(loophead),
   StructuredLoopHead(innerLoopHead),
@@ -343,6 +347,15 @@ LoopExitCond(condVar, loop) :-
   InStructuredLoop(jmpi, loop),
   edge(jmpi, out),
   !InStructuredLoop(out, loop).
+
+.decl LoopBoundByGas(loop: Statement)
+.output LoopBoundByGas
+        
+LoopBoundByGas(loop) :-
+  LoopExitCond(condVar, loop),
+  InStructuredLoop(stmt, loop),
+  GasResult(var, stmt),
+  FlowsFrom(condVar, var).
 
 //
 //  *** Vulnerability analysis primitives ***
@@ -451,6 +464,7 @@ PossiblyResumableLoop(loop) :-
   BasicBlockHead(loadStmt, loadStmtHead),
   // Load has to be able to happen before store
   !Dominates(storeStmtHead, loadStmtHead). 
+
 
         
 .decl CallAddressFromStorage(loadStmt:Statement, callStmt:Statement)
