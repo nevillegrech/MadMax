@@ -35,7 +35,7 @@
 .type Statement
 .type Variable
 .type Opcode
-.type Value
+.number_type Value
 .type Block
 .type Function
       
@@ -490,8 +490,10 @@ InductiveMassCall(callStmt, loop) :-
 // *** DATA STRUCTURES YAY ***
 //
 
+.decl PreKeyToOffset(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
+.output PreKeyToOffset
       
-.decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable)
+.decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
 .output KeyToOffset
 
 // keyVar is a variable whose valued is SHA3ed to yield storeOffsetVar
@@ -499,19 +501,27 @@ InductiveMassCall(callStmt, loop) :-
 // In the case of a map, a "key" is appended to a "fixed" offset and SHA'd.
 // We mostly ignore maps for now as these cannot be iterated
 // TODO: use alias analysis to improve soundness/precision
-KeyToOffset(keyVar, storeOffsetVar) :-
+PreKeyToOffset(keyVar, storeOffsetVar, keySize) :-
   op(shaStmt,"SHA3"),
   BasicBlockHead(shaStmt, block),
   BasicBlockHead(storeMemStmt, block),
   op(storeMemStmt,"MSTORE"),
-  //use(size, shaStmt, 2),
+  use(keySizeVar, shaStmt, 2),
   use(keyVar, storeMemStmt, 2),
   use(start, shaStmt, 1),
   use(start2, storeMemStmt, 1),
   value(start2, startVal),
   value(start, startVal),
-  //value(size, sizeVal),
-  def(storeOffsetVar, shaStmt),
+  value(keySizeVar, keySize),
+  def(storeOffsetVar, shaStmt).
+
+PreKeyToOffset(keyVar1, storeOffsetVar2, keySize) :-
+  PreKeyToOffset(keyVar1, storeOffsetVar1, _),
+  FlowsFrom(keyVar2, storeOffsetVar1),
+  PreKeyToOffset(keyVar2, storeOffsetVar2, keySize).
+    
+KeyToOffset(keyVar, storeOffsetVar, keySize) :-
+  PreKeyToOffset(keyVar, storeOffsetVar, keySize),
   FlowsFrom(storeOffsetVarDerivative, storeOffsetVar),
   use(storeOffsetVarDerivative, storeInst, 1),
   (op(storeInst, "SSTORE") ; op(storeInst, "SLOAD")).
@@ -521,18 +531,16 @@ KeyToOffset(keyVar, storeOffsetVar) :-
 
 // the constant value that’s SHA3ed to yield storeOffsetVar is c
 ArrayIdToStorageIndex(const, storeOffsetVar) :-
-   KeyToOffset(keyVar, storeOffsetVar),
-   def(keyVar, constStmt),
-   op(constStmt, "CONST"),
-   value(keyVar, const).
+   KeyToOffset(keyVar, storeOffsetVar, keySize),
+   value(keyVar, const),
+   keySize = 1.
 
 .decl MapKeyToStorageIndex(keyVar:Variable, storeOffsetVar:Variable)
 .output MapKeyToStorageIndex 	 
 
 MapKeyToStorageIndex(keyVar, storeOffsetVar) :-
-   KeyToOffset(keyVar, storeOffsetVar),
-   def(keyVar, nonConstStmt),
-   !op(nonConstStmt, "CONST").
+   KeyToOffset(keyVar, storeOffsetVar, _),
+   !ArrayIdToStorageIndex(_, storeOffsetVar). // TODO: check 
 
 .decl PossibleArraySizeVariable(resVar:Variable, const:Value, storeOffset:Variable)
 
