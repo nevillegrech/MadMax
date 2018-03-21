@@ -501,19 +501,29 @@ InductiveMassCall(callStmt, loop) :-
 // In the case of a map, a "key" is appended to a "fixed" offset and SHA'd.
 // We mostly ignore maps for now as these cannot be iterated
 // TODO: use alias analysis to improve soundness/precision
-PreKeyToOffset(keyVar, storeOffsetVar, keySize) :-
-  op(shaStmt,"SHA3"),
-  BasicBlockHead(shaStmt, block),
-  BasicBlockHead(storeMemStmt, block),
-  op(storeMemStmt,"MSTORE"),
-  use(keySizeVar, shaStmt, 2),
-  use(keyVar, storeMemStmt, 2),
+
+.decl SHA3(stmt: Statement, ret: Variable, start: Variable, size: Variable)
+SHA3(stmt, ret, start, size) :-
+  op(stmt,"SHA3"),
   use(start, shaStmt, 1),
-  use(start2, storeMemStmt, 1),
+  use(size, shaStmt, 2),
+  def(ret, shaStmt).
+
+.decl MSTORE(stmt: Statement, index: Variable, var: Variable)
+
+MSTORE(stmt, index, var) :-
+  op(stmt,"MSTORE"),
+  use(index, storeMemStmt, 1),
+  use(var, storeMemStmt, 2).
+
+PreKeyToOffset(keyVar, storeOffsetVar, keySize) :-
+  SHA3(shaStmt, storeOffsetVar, start, keySizeVar),
+  BasicBlockHead(shaStmt, block),
+  BasicBlockHead(mstoreStmt, block),
+  MSTORE(mstoreStmt, start2, keyVar),
   value(start2, startVal),
   value(start, startVal),
-  value(keySizeVar, keySize),
-  def(storeOffsetVar, shaStmt).
+  value(keySizeVar, keySize).
 
 PreKeyToOffset(keyVar1, storeOffsetVar2, keySize) :-
   PreKeyToOffset(keyVar1, storeOffsetVar1, _),
