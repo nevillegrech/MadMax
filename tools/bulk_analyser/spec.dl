@@ -322,10 +322,9 @@ CallSuccessControlsStore(callStmt, storeStmt) :-
 //  condVar *both* from the induction variable and from the dynamic load? And are
 //  both of these necessary?
 StorageDynamicBound(loop, dynVar) :-
-  InStructuredLoop(stmt, loop),
   LoopExitCond(condVar, loop),
-  SLOAD(stmt, _, dynVar),
   FlowsFrom(condVar, dynVar),
+  SLOAD(_, _, dynVar),
   FlowsFrom(condVar, v),
   InductionVariable(v, loop).
 
@@ -338,7 +337,7 @@ InductionVariable(v, loop) :-
   InStructuredLoop(addStmt, loop),
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
   FlowsFrom(c, other),
-  !RuntimeKnowable(other),
+  !DynamicallyKnown(other),
   !VariabledDefinedByNonAddInLoop(v, loop).
 
 .decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
@@ -505,7 +504,7 @@ PossibleLoopOverflow(loop) :-
   InductionVariable(from, loop),
   CastToShortInt(from, to, castStmt),
   InStructuredLoop(castStmt, loop),
-  FlowsFrom(to, condVar),
+  FlowsFrom(condVar, to),
   LoopExitCond(condVar, loop).
 
 // 
@@ -527,9 +526,9 @@ WalletGriefing(callStmt) :-
 UnboundedMassOp(storeStmt) :-
   IncreasedStorageOnPublicFunction(_, arrayId),
   ArrayIdToStorageIndex(arrayId, storeOffsetVar),
-  FlowsFrom(index, i),
   FlowsFrom(index, storeOffsetVar),  
   (SSTORE(storeStmt, index, _) ; SLOAD(storeStmt, index, _)),
+  FlowsFrom(index, i),
   InStructuredLoop(storeStmt, loop),
   InductionVariable(i, loop),
   PossibleArrayIterator(loop, _, arrayId),
@@ -558,4 +557,3 @@ OtherDynamicBound(loop, dynVar) :-
 OverflowLoopIterator(loop) :-
   PossibleLoopOverflow(loop),
   (OtherDynamicBound(loop, _) ; StorageDynamicBound(loop, _)).
-
