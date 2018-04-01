@@ -163,14 +163,15 @@ PostDominates(postdominator,s) :-
 //
 
 // The value of x flows from the value of y
-// I.e. y is used to calculate x, for a limited number of operations
+// I.e. y is used to calculate x, using EVM's operators
 // See Also: DependsOn
 .decl FlowsFrom(x:Variable, y:Variable)
 FlowsFrom(x, x) :- use(x, _, _).
 FlowsFrom(x, x) :- def(x, _).
 FlowsFrom(x, y) :- def(x, stmt), use(y, stmt, _), op(stmt, op), FlowOp(op).
 FlowsFrom(x, z) :- FlowsFrom(x, y), FlowsFrom(y, z).
-
+.output FlowsFrom
+        
 // The value of x depends on the value of y
 // I.e. y is used to calculate x, either directly as an input of the operation
 // that defined x, or transitively.
@@ -297,7 +298,6 @@ CallSuccessControlsException(callStmt, throwStmt) :-
 
 /// YS: why FlowsFrom and not DependsOn? Both above and in several places below.
 
-
 // UNUSED
 .decl CallSuccessControlsStore(callStmt:Statement, storeStmt: Statement)
 CallSuccessControlsStore(callStmt, storeStmt) :-
@@ -311,7 +311,6 @@ CallSuccessControlsStore(callStmt, storeStmt) :-
   CallResult(resVar, callStmt),
   FlowsFrom(stateVar, resVar),
   SSTORE(storeStmt, _, stateVar).
-
 
 .decl StorageDynamicBound(x:Statement, dynVar:Variable)
 // A loop is dynamically bound by the storage state
@@ -336,8 +335,8 @@ StorageDynamicBound(loop, dynVar) :-
 InductionVariable(v, loop) :-
   InStructuredLoop(addStmt, loop),
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
-  FlowsFrom(c, other),
-  !DynamicallyKnown(other),
+  //FlowsFrom(c, other),
+  //!DynamicallyKnown(other),
   !VariabledDefinedByNonAddInLoop(v, loop).
 
 .decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
