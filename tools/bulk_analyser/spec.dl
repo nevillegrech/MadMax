@@ -66,6 +66,12 @@ StatementInPublicFunction(s, f) :-
   block(s, b),
   in_function(b, f).
 
+.decl PrecompiledCall(stmt:Statement, address:Value)
+
+PrecompiledCall(stmt, val) :-
+  CALL(stmt, _, address, _, _, _, _, _, _),
+  value(address, val),
+  (val = "0x1" ; val = "0x2" ; val = "0x3"; val = "0x4").
 
 //
 // *** CONTROL-FLOW ANALYSIS CONCEPTS *** 
@@ -328,16 +334,25 @@ StorageDynamicBound(loop, dynVar) :-
   InductionVariable(v, loop).
 
 .decl InductionVariable(v:Variable, loop: Statement)
+.decl InductionVariableCast(v:Variable, loop: Statement)
 // A variable that is monotonically increasing with each successive iteration in loop
 .output InductionVariable
+.output InductionVariableCast
         
 // YS: strictly speaking, adding does not guarantee increasing...
 InductionVariable(v, loop) :-
   InStructuredLoop(addStmt, loop),
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
-  //FlowsFrom(c, other),
-  //!DynamicallyKnown(other),
   !VariabledDefinedByNonAddInLoop(v, loop).
+
+// Theoratically not an induction variable because it can wrap around
+
+InductionVariableCast(v, loop),
+InductionVariable(v, loop) :-
+  InStructuredLoop(addStmt, loop),
+  (ADD(addStmt, v, c, v2) ; ADD(addStmt, c, v, v2)),
+  CastToShortInt(v2, v, castStmt),
+  InStructuredLoop(castStmt, loop).
 
 .decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
 // A variable that is defined by any statement other than ADD
@@ -356,7 +371,6 @@ InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
   FlowsFrom(v, resVar),
   InductionVariable(v, loop).
       
-
 .decl InductionVariableSavedToStorage(v:Variable, loop: Statement, storeStmt: Statement)
 .output InductionVariableSavedToStorage
 // An induction variable (v for loop) that is processed and saved to storage
@@ -381,11 +395,11 @@ PossiblyResumableLoop(loop) :-
   //!Dominates(storeStmtHead, loadStmtHead),
   LoopBoundByGas(loop). 
         
-.decl CallAddressFromStorage(loadStmt:Statement, callStmt:Statement)
+.decl CallAddressFromStorage(loadStmt:Statement, index:Variable, callStmt:Statement)
 .output CallAddressFromStorage
 // Call an address at callStmt that is loaded at loadStmt from storage      
-CallAddressFromStorage(loadStmt, callStmt) :-
-  SLOAD(loadStmt, _, resVar),
+CallAddressFromStorage(loadStmt, index, callStmt) :-
+  SLOAD(loadStmt, index, resVar),
   FlowsFrom(target, resVar),
   CALL(callStmt, _, target, _, _, _, _, _, _).
 
@@ -395,8 +409,7 @@ CallAddressFromStorage(loadStmt, callStmt) :-
 // TODO: check whether these are real addresses,
 // solidity likes to apply specific masks to addreses.
 InductiveMassCall(callStmt, loop) :-
-  CallAddressFromStorage(loadStmt, callStmt),
-  use(index, loadStmt, _),
+  CallAddressFromStorage(_, index, callStmt),
   DependsOn(index, var),
   InductionVariable(var, loop).
 
@@ -494,14 +507,16 @@ PossibleArrayIterator(loop, resVar, arrayId) :-
 
 CastToShortInt(from, to, stmt) :-
   (AND(stmt, from, mask, to) ; AND(stmt, mask, from, to)),
-  (value(mask, "0xff") ; value(mask, "0xff")).
+  (value(mask, "0xff") ;
+  value(mask, "0xffff") ;
+  value(mask, "0xffffffff")).
 
 .decl PossibleLoopOverflow(loop:Statement)
 .output PossibleLoopOverflow
         
 PossibleLoopOverflow(loop) :-
-  InductionVariable(from, loop),
-  CastToShortInt(from, to, castStmt),
+  InductionVariable(to, loop),
+  CastToShortInt(_, to, castStmt),
   InStructuredLoop(castStmt, loop),
   FlowsFrom(condVar, to),
   LoopExitCond(condVar, loop).
