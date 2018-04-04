@@ -334,10 +334,10 @@ StorageDynamicBound(loop, dynVar) :-
   InductionVariable(v, loop).
 
 .decl InductionVariable(v:Variable, loop: Statement)
-.decl InductionVariableCast(v:Variable, loop: Statement)
+.decl InductionVariableWorkAround(v:Variable, loop: Statement)
 // A variable that is monotonically increasing with each successive iteration in loop
 .output InductionVariable
-.output InductionVariableCast
+.output InductionVariableWorkAround
         
 // YS: strictly speaking, adding does not guarantee increasing...
 InductionVariable(v, loop) :-
@@ -345,14 +345,21 @@ InductionVariable(v, loop) :-
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
   !VariabledDefinedByNonAddInLoop(v, loop).
 
-// Theoratically not an induction variable because it can wrap around
+// Workarount for a Vandal limitation
+InductionVariableWorkAround(v2, loop),
+InductionVariable(v2, loop) :-
+  InductionVariable(v1, loop),
+  ADD(addStmt, _, v1, v1),
+  ADD(addStmt, _, v2, v1),
+  v1 != v2.
 
-InductionVariableCast(v, loop),
-InductionVariable(v, loop) :-
-  InStructuredLoop(addStmt, loop),
-  (ADD(addStmt, v, c, v2) ; ADD(addStmt, c, v, v2)),
-  CastToShortInt(v2, v, castStmt),
-  InStructuredLoop(castStmt, loop).
+// Workarount for a Vandal limitation
+InductionVariableWorkAround(v2, loop),
+InductionVariable(v2, loop) :-
+  InductionVariable(v1, loop),
+  ADD(addStmt, v1, _, v1),
+  ADD(addStmt, v2, _, v1),
+  v1 != v2.
 
 .decl VariabledDefinedByNonAddInLoop(v:Variable, loop:Statement)
 // A variable that is defined by any statement other than ADD
@@ -417,9 +424,30 @@ InductiveMassCall(callStmt, loop) :-
 // *** DATA STRUCTURES YAY ***
 //
 
-.decl PreKeyToOffset(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
-.output PreKeyToOffset
+.decl PostDominatesInBlock(stmt:Statement, stmt2: Statement)
+
+PostDominatesInBlock(stmt2, stmt) :-
+  edge(stmt, stmt2),
+  BasicBlockHead(stmt, block),
+  BasicBlockHead(stmt2, block).
+
+PostDominatesInBlock(stmt3, stmt1) :-
+  PostDominatesInBlock(stmt2, stmt1),
+  edge(stmt2, stmt3),
+  BasicBlockHead(stmt2, block),
+  BasicBlockHead(stmt3, block).
+
+
+.decl LocalAlias(stmt1:Statement, var1:Variable, stmt2:Statement, var2:Variable)
+
+LocalAlias(stmt1, var1, stmt2, var2) :-
+  use(var1, stmt1, _),
+  value(var1, val),
+  PostDominatesInBlock(stmt2, stmt1),
+  value(var2, val),
+  use(var2, stmt2, _).
       
+
 .decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
 .output KeyToOffset
 
@@ -429,25 +457,20 @@ InductiveMassCall(callStmt, loop) :-
 // We mostly ignore maps for now as these cannot be iterated
 // TODO: use alias analysis to improve soundness/precision
 
-PreKeyToOffset(keyVar, storeOffsetVar, keySize) :-
-  SHA3(shaStmt, storeOffsetVar, start, keySizeVar),
-  BasicBlockHead(shaStmt, block),
-  BasicBlockHead(mstoreStmt, block),
-  MSTORE(mstoreStmt, start2, keyVar),
-  value(start2, startVal),
-  value(start, startVal),
-  value(keySizeVar, keySize).
-
-PreKeyToOffset(keyVar1, storeOffsetVar2, keySize) :-
-  PreKeyToOffset(keyVar1, storeOffsetVar1, _),
-  FlowsFrom(keyVar2, storeOffsetVar1),
-  PreKeyToOffset(keyVar2, storeOffsetVar2, keySize).
-    
 KeyToOffset(keyVar, storeOffsetVar, keySize) :-
-  PreKeyToOffset(keyVar, storeOffsetVar, keySize),
-  FlowsFrom(storeOffsetVarDerivative, storeOffsetVar),
-  StorageIndex(storeOffsetVarDerivative).
+  SHA3(shaStmt, shaStart, keySizeVar, storeOffsetVar),
+  LocalAlias(mstoreStmt, shaStart2, shaStmt, shaStart),
+  MSTORE(mstoreStmt, shaStart2, keyVar),
+  value(keySizeVar, keySize),
+  FlowsFrom(index, storeOffsetVar),
+  StorageIndex(index).
 
+KeyToOffset(keyVar1, storeOffsetVar2, keySize) :-
+  KeyToOffset(keyVar1, storeOffsetVar1, _),
+  FlowsFrom(keyVar2, storeOffsetVar1),
+  KeyToOffset(keyVar2, storeOffsetVar2, keySize).
+//#endif
+ 
 .decl StorageIndex(index: Variable)
 
 StorageIndex(index) :-
@@ -467,18 +490,18 @@ ArrayIdToStorageIndex(const, storeOffsetVar) :-
 .output MapKeyToStorageIndex 	 
 
 MapKeyToStorageIndex(keyVar, storeOffsetVar) :-
-   KeyToOffset(keyVar, storeOffsetVar, _),
-   !ArrayIdToStorageIndex(_, storeOffsetVar). // TODO: check 
+   KeyToOffset(keyVar, storeOffsetVar, "0x40").
 
 .decl PossibleArraySizeVariable(resVar:Variable, const:Value)
 
 // resVar is possibly the size of an array identified by const: when reading directly at address const,
 // we get the size of an array. When we want its contents, we need to take the SHA3 of const.
 PossibleArraySizeVariable(resVar, const) :-
-  SLOAD(loadStmt, _, resVar),
-  use(index, loadStmt, _),
+  SLOAD(_, index, resVar),
   value(index, const),
   ArrayIdToStorageIndex(const, _).
+
+// TODO recursive case
 
 .decl IncreasedStorageOnPublicFunction(f: Function, arrayId: Value)
 .output IncreasedStorageOnPublicFunction
@@ -513,40 +536,19 @@ CastToShortInt(from, to, stmt) :-
 
 .decl PossibleLoopOverflow(loop:Statement)
 .output PossibleLoopOverflow
-        
+.decl DebugPossibleLoopOverflow(loop:Statement, var: Variable)
+.output DebugPossibleLoopOverflow
+
+DebugPossibleLoopOverflow(loop, var),
 PossibleLoopOverflow(loop) :-
-  InductionVariable(to, loop),
-  CastToShortInt(_, to, castStmt),
+  // The following needs to be looked at
+  //  InductionVariable(var, loop),                   
+  ADD(addStmt, _, _, var),
+  InStructuredLoop(addStmt, loop),
+  CastToShortInt(var, to, castStmt),
   InStructuredLoop(castStmt, loop),
   FlowsFrom(condVar, to),
   LoopExitCond(condVar, loop).
-
-// 
-// ** Specific vulnerabilities **
-//
-
-.decl WalletGriefing(x:Statement)
-.output WalletGriefing      
-
-WalletGriefing(callStmt) :-
-  InductiveMassCall(callStmt, loop),        
-  InStructuredLoop(callStmt, loop),
-  CallSuccessControlsException(callStmt, throwStmt),
-  InStructuredLoop(throwStmt, loop),
-  !PossiblyResumableLoop(loop).
-
-.decl UnboundedMassOp(x:Statement)
-.output UnboundedMassOp
-UnboundedMassOp(storeStmt) :-
-  IncreasedStorageOnPublicFunction(_, arrayId),
-  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
-  FlowsFrom(index, storeOffsetVar),  
-  (SSTORE(storeStmt, index, _) ; SLOAD(storeStmt, index, _)),
-  FlowsFrom(index, i),
-  InStructuredLoop(storeStmt, loop),
-  InductionVariable(i, loop),
-  PossibleArrayIterator(loop, _, arrayId),
-  !PossiblyResumableLoop(loop).
 
 .decl DynamicallyKnown(var: Variable)
 
@@ -565,9 +567,36 @@ OtherDynamicBound(loop, dynVar) :-
   InductionVariable(v, loop),
   FlowsFrom(condVar, v).
 
-.decl OverflowLoopIterator(loop: Statement)
-.output OverflowLoopIterator
+// 
+// ** Specific vulnerabilities **
+//
 
-OverflowLoopIterator(loop) :-
+.decl Vulnerability_WalletGriefing(x:Statement)
+.output Vulnerability_WalletGriefing      
+
+Vulnerability_WalletGriefing(callStmt) :-
+  InductiveMassCall(callStmt, loop),        
+  InStructuredLoop(callStmt, loop),
+  CallSuccessControlsException(callStmt, throwStmt),
+  InStructuredLoop(throwStmt, loop),
+  !PossiblyResumableLoop(loop).
+
+.decl Vulnerability_UnboundedMassOp(x:Statement)
+.output Vulnerability_UnboundedMassOp
+Vulnerability_UnboundedMassOp(storeStmt) :-
+  IncreasedStorageOnPublicFunction(_, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  FlowsFrom(index, storeOffsetVar),  
+  (SSTORE(storeStmt, index, _) ; SLOAD(storeStmt, index, _)),
+  FlowsFrom(index, i),
+  InStructuredLoop(storeStmt, loop),
+  InductionVariable(i, loop),
+  PossibleArrayIterator(loop, _, arrayId),
+  !PossiblyResumableLoop(loop).
+
+.decl Vulnerability_OverflowLoopIterator(loop: Statement)
+.output Vulnerability_OverflowLoopIterator
+
+Vulnerability_OverflowLoopIterator(loop) :-
   PossibleLoopOverflow(loop),
   (OtherDynamicBound(loop, _) ; StorageDynamicBound(loop, _)).
