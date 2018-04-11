@@ -450,6 +450,8 @@ LocalAlias(stmt1, var1, stmt2, var2) :-
 
 .decl KeyToOffset(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
 .output KeyToOffset
+.decl NestedDataStructure(keyVar:Variable, storeOffsetVar:Variable, keySize: Value)
+.output NestedDataStructure
 
 // keyVar is a variable whose valued is SHA3ed to yield storeOffsetVar
 // In the case of an array, only a "fixed" offset is SHA'd
@@ -465,6 +467,7 @@ KeyToOffset(keyVar, storeOffsetVar, keySize) :-
   FlowsFrom(index, storeOffsetVar),
   StorageIndex(index).
 
+NestedDataStructure(keyVar1, storeOffsetVar2, keySize),
 KeyToOffset(keyVar1, storeOffsetVar2, keySize) :-
   KeyToOffset(keyVar1, storeOffsetVar1, _),
   FlowsFrom(keyVar2, storeOffsetVar1),
