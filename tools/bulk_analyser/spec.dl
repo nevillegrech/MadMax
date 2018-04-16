@@ -578,11 +578,15 @@ OtherDynamicBound(loop, dynVar) :-
 .output Vulnerability_WalletGriefing      
 
 Vulnerability_WalletGriefing(callStmt) :-
-  InductiveMassCall(callStmt, loop),        
+  IncreasedStorageOnPublicFunction(_, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  FlowsFrom(index, storeOffsetVar),
+  InductionVariable(i, loop),
+  FlowsFrom(index, i),
+  CallAddressFromStorage(_, index, callStmt),
   InStructuredLoop(callStmt, loop),
   CallSuccessControlsException(callStmt, throwStmt),
-  InStructuredLoop(throwStmt, loop),
-  !PossiblyResumableLoop(loop).
+  InStructuredLoop(throwStmt, loop).
 
 .decl Vulnerability_UnboundedMassOp(x:Statement)
 .output Vulnerability_UnboundedMassOp
