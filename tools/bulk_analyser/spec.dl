@@ -346,12 +346,32 @@ InductionVariable(v, loop) :-
   !VariabledDefinedByNonAddInLoop(v, loop).
 
 // Workarount for a Vandal limitation
+/*
 InductionVariableWorkAround(v2, loop),
 InductionVariable(v2, loop) :-
   InductionVariable(v1, loop),
   ADD(addStmt, _, v1, v1),
   ADD(addStmt, _, v2, v1),
   v1 != v2.
+*/
+
+.decl GlobalInductionVariableStore(storeVal:Value, loop:Statement)
+
+GlobalInductionVariableStore(storeVal, loop) :-
+  SLOAD(loadStmt, index, var),
+  (ADD(addStmt, _, var, addvar) ; ADD(addStmt, _, var, addvar)),
+  SSTORE(storeStmt, index, addvar),
+  InStructuredLoop(loadStmt, loop),
+  InStructuredLoop(addStmt, loop),
+  InStructuredLoop(storeStmt, loop),
+  value(index, storeVal).
+
+InductionVariable(var, loop) :-
+  SLOAD(loadStmt, index, var),
+  value(index, storeVal),
+  GlobalInductionVariableStore(storeVal, loop),
+  InStructuredLoop(loadStmt, loop).
+
 
 // Workarount for a Vandal limitation
 InductionVariableWorkAround(v2, loop),
@@ -585,8 +605,9 @@ Vulnerability_WalletGriefing(callStmt) :-
   FlowsFrom(index, i),
   CallAddressFromStorage(_, index, callStmt),
   InStructuredLoop(callStmt, loop),
-  CallSuccessControlsException(callStmt, throwStmt),
-  InStructuredLoop(throwStmt, loop).
+  CallSuccessControlsException(callStmt, throwStmt).
+  // Spurious, throw stmt many times not inside loop
+  //InStructuredLoop(throwStmt, loop).
 
 .decl Vulnerability_UnboundedMassOp(x:Statement)
 .output Vulnerability_UnboundedMassOp
