@@ -55,6 +55,17 @@
 .decl block(s: Statement, b: Block)
 .input block
 
+.decl AssertAliasing(var:Variable, stmt:Statement)
+.output AssertAliasing
+       
+// Aliasing ?
+use(v2, stmt, i),        
+AssertAliasing(v2, stmt) :-
+  use(v1, stmt, i),
+  def(v1, stmt),
+  def(v2, stmt),
+  v1 != v2.
+       
 isBlock(b) :- block(_, b).
 
 .decl in_function(b:Block, t:Function)
@@ -345,16 +356,6 @@ InductionVariable(v, loop) :-
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
   !VariabledDefinedByNonAddInLoop(v, loop).
 
-// Workarount for a Vandal limitation
-/*
-InductionVariableWorkAround(v2, loop),
-InductionVariable(v2, loop) :-
-  InductionVariable(v1, loop),
-  ADD(addStmt, _, v1, v1),
-  ADD(addStmt, _, v2, v1),
-  v1 != v2.
-*/
-
 .decl GlobalInductionVariableStore(storeVal:Value, loop:Statement)
 
 GlobalInductionVariableStore(storeVal, loop) :-
@@ -386,7 +387,8 @@ InductionVariable(v2, loop) :-
 VariabledDefinedByNonAddInLoop(v, loop) :-
   InStructuredLoop(stmt, loop),
   def(v, stmt),
-  !ADD(stmt, _, _, v).
+  !ADD(stmt, _, _, v),
+  !AND(stmt, _, _, v).
 
 .decl InductionVariableInitialisedFromStorage(v:Variable, loop: Statement, loadStmt: Statement)
 .output InductionVariableInitialisedFromStorage
@@ -564,10 +566,8 @@ CastToShortInt(from, to, stmt) :-
 
 DebugPossibleLoopOverflow(loop, var),
 PossibleLoopOverflow(loop) :-
-  // The following needs to be looked at
-  //  InductionVariable(var, loop),                   
-  ADD(addStmt, _, _, var),
-  InStructuredLoop(addStmt, loop),
+  // The following still needs to be looked at
+  InductionVariable(var, loop),                   
   CastToShortInt(var, to, castStmt),
   InStructuredLoop(castStmt, loop),
   FlowsFrom(condVar, to),
@@ -605,7 +605,7 @@ Vulnerability_WalletGriefing(callStmt) :-
   FlowsFrom(index, i),
   CallAddressFromStorage(_, index, callStmt),
   InStructuredLoop(callStmt, loop),
-  CallSuccessControlsException(callStmt, throwStmt).
+  CallSuccessControlsException(callStmt, _).
   // Spurious, throw stmt many times not inside loop
   //InStructuredLoop(throwStmt, loop).
 
