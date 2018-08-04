@@ -304,14 +304,14 @@ Analytics_BlockInNoFunctions(b) :-
 JumpTarget(b, t) :-
    JUMP(jmpStmt, _),
    edge(jmpStmt, t),
-   BasicBlockHead(stmt, b).
+   BasicBlockHead(jmpStmt, b).
 
 .decl JumpITarget(b: Statement, t: Statement)
 
 JumpITarget(b, t) :-
    JUMPI(jmpStmt, _, _),
    edge(jmpStmt, t),
-   BasicBlockHead(stmt, b).
+   BasicBlockHead(jmpStmt, b).
 
 .decl Analytics_MissingJumpTarget(b: Statement)
 .output Analytics_MissingJumpTarget
