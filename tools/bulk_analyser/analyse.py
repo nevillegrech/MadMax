@@ -141,6 +141,7 @@ parser.add_argument("-r",
                     help="the location to write the results.")
 
 parser.add_argument("--spec",
+                    "--spec",
                     nargs="?",
                     default=DEFAULT_SPEC_DL,
                     const=DEFAULT_SPEC_DL,
@@ -303,8 +304,7 @@ def compile_datalog():
     log("Compiling Datalog to C++ program and executable")
     process = subprocess.run(compilation_command, universal_newlines=True)
     assert not(process.returncode), "Compilation failed. Stopping."
-    
-    
+       
 def analyse_contract(job_index: int, index: int, filename: str, result_queue) -> None:
     """
     Perform dataflow analysis on a contract, storing the result in the queue.
