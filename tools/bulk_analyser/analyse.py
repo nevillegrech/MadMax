@@ -140,6 +140,14 @@ parser.add_argument("-r",
                     metavar="FILE",
                     help="the location to write the results.")
 
+parser.add_argument("--spec",
+                    nargs="?",
+                    default=DEFAULT_SPEC_DL,
+                    const=DEFAULT_SPEC_DL,
+                    metavar="FILE",
+                    help="the location of the datalog spec to run.")
+
+
 parser.add_argument("-f",
                     "--from_file",
                     nargs="?",
