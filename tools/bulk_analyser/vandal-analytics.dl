@@ -1,5 +1,5 @@
 // Contains code (c) 2016, 2017, The University of Sydney
-#include "instructions.dl"
+#include "tac_instructions.dl"
 
 .type Statement
 .type Variable
