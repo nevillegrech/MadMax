@@ -1,6 +1,8 @@
 // BSD 3-Clause License
 //
-// Copyright (c) 2016, 2017, The University of Sydney. All rights reserved.
+// Copyright (c) 2016, 2017, The University of Sydney.
+// Copyright (c) 2018, Neville Grech, Yannis Smaragdakis.
+// All rights reserved.
 //
 // Redistribution and use in source and binary forms, with or without
 // modification, are permitted provided that the following conditions are met:
@@ -26,7 +28,7 @@
 // CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-#include "instructions.dl"
+#include "tac_instructions.dl"
 
 
 
@@ -55,6 +57,17 @@
 .decl block(s: Statement, b: Block)
 .input block
 
+.decl AssertAliasing(var:Variable, stmt:Statement)
+.output AssertAliasing
+       
+// Aliasing ?
+use(v2, stmt, i),        
+AssertAliasing(v2, stmt) :-
+  use(v1, stmt, i),
+  def(v1, stmt),
+  def(v2, stmt),
+  v1 != v2.
+       
 isBlock(b) :- block(_, b).
 
 .decl in_function(b:Block, t:Function)
@@ -345,13 +358,23 @@ InductionVariable(v, loop) :-
   (ADD(addStmt, v, c, v) ; ADD(addStmt, c, v, v)),
   !VariabledDefinedByNonAddInLoop(v, loop).
 
-// Workarount for a Vandal limitation
-InductionVariableWorkAround(v2, loop),
-InductionVariable(v2, loop) :-
-  InductionVariable(v1, loop),
-  ADD(addStmt, _, v1, v1),
-  ADD(addStmt, _, v2, v1),
-  v1 != v2.
+.decl GlobalInductionVariableStore(storeVal:Value, loop:Statement)
+
+GlobalInductionVariableStore(storeVal, loop) :-
+  SLOAD(loadStmt, index, var),
+  (ADD(addStmt, _, var, addvar) ; ADD(addStmt, _, var, addvar)),
+  SSTORE(storeStmt, index, addvar),
+  InStructuredLoop(loadStmt, loop),
+  InStructuredLoop(addStmt, loop),
+  InStructuredLoop(storeStmt, loop),
+  value(index, storeVal).
+
+InductionVariable(var, loop) :-
+  SLOAD(loadStmt, index, var),
+  value(index, storeVal),
+  GlobalInductionVariableStore(storeVal, loop),
+  InStructuredLoop(loadStmt, loop).
+
 
 // Workarount for a Vandal limitation
 InductionVariableWorkAround(v2, loop),
@@ -366,7 +389,8 @@ InductionVariable(v2, loop) :-
 VariabledDefinedByNonAddInLoop(v, loop) :-
   InStructuredLoop(stmt, loop),
   def(v, stmt),
-  !ADD(stmt, _, _, v).
+  !ADD(stmt, _, _, v),
+  !AND(stmt, _, _, v).
 
 .decl InductionVariableInitialisedFromStorage(v:Variable, loop: Statement, loadStmt: Statement)
 .output InductionVariableInitialisedFromStorage
@@ -544,10 +568,8 @@ CastToShortInt(from, to, stmt) :-
 
 DebugPossibleLoopOverflow(loop, var),
 PossibleLoopOverflow(loop) :-
-  // The following needs to be looked at
-  //  InductionVariable(var, loop),                   
-  ADD(addStmt, _, _, var),
-  InStructuredLoop(addStmt, loop),
+  // The following still needs to be looked at
+  InductionVariable(var, loop),                   
   CastToShortInt(var, to, castStmt),
   InStructuredLoop(castStmt, loop),
   FlowsFrom(condVar, to),
@@ -585,8 +607,9 @@ Vulnerability_WalletGriefing(callStmt) :-
   FlowsFrom(index, i),
   CallAddressFromStorage(_, index, callStmt),
   InStructuredLoop(callStmt, loop),
-  CallSuccessControlsException(callStmt, throwStmt),
-  InStructuredLoop(throwStmt, loop).
+  CallSuccessControlsException(callStmt, _).
+  // Spurious, throw stmt many times not inside loop
+  //InStructuredLoop(throwStmt, loop).
 
 .decl Vulnerability_UnboundedMassOp(x:Statement)
 .output Vulnerability_UnboundedMassOp

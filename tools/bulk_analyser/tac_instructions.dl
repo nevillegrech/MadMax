@@ -1,5 +1,12 @@
 //
-// *** INSTRUCTIONS ***
+// *** Three-address code INSTRUCTIONS ***
+// This is the schema for the input of any client analyses. Note the
+// (incompatible) overlap with names of instructions inside the
+// decompiler.  E.g., an ADD relation inside a decompiler is different
+// from the ADD relation established here.  We are changing
+// representation right after this phase: importing info that the
+// decompiler has produced and formatting it the way further analyses
+// want it.
 //
 
 // Place opcodes into various categories.
@@ -151,3 +158,18 @@ JUMPDEST(s) :- op(s, "JUMPDEST").
 JUMP(stmt, dest) :-
   op(stmt, "JUMP"),
   use(dest, stmt, 1).
+
+// Instructions introduced by the new decompiler
+.decl PHI(s: Statement, fro: Variable, to: Variable)
+
+PHI(s, fro, to) :-
+   op(stmt, "PHI"),
+   def(to, stmt),
+   use(fro, stmt).
+
+.decl PRIVATECALL(s: Statement, f: Variable)
+.decl PRIVATECALLI(s: Statement, f: Variable, cond: Variable) 
+.decl PRIVATERETURN(s: Statement, b: Variable)
+.decl PRIVATERETURNI(s: Statement, b: Variable, cond: Variable)
+
+
