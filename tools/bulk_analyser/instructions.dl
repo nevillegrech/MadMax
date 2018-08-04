@@ -147,3 +147,7 @@ IsJump(s) :- op(s, "JUMPI").
 .decl JUMPDEST(s:Statement)
 JUMPDEST(s) :- op(s, "JUMPDEST").
 
+.decl JUMP(stmt:Statement, dest:Variable)
+JUMP(stmt, dest) :-
+  op(stmt, "JUMP"),
+  use(dest, stmt, 1).
