@@ -408,6 +408,8 @@ log_level = logging.WARNING if args.quiet else logging.INFO + 1
 log = lambda msg: logging.log(logging.INFO + 1, msg)
 logging.basicConfig(format='%(message)s', level=log_level)
 
+DEFAULT_SPEC_DL = args.spec
+
 compile_datalog()
 
 log("Setting up working directory {}.".format(TEMP_WORKING_DIR))
