@@ -363,13 +363,20 @@ def analyse_contract(job_index: int, index: int, filename: str, result_queue) ->
 
             analytics["decomp_time"] = decomp_time
             analytics["souffle_time"] = souffle_time
-
+            get_gigahorse_analytics(out_dir, analytics)
             result_queue.put((filename, vulns, meta, analytics))
 
     except Exception as e:
         log("Error: {}".format(e))
         result_queue.put((filename, [], ["error"], {}))
 
+def get_gigahorse_analytics(out_dir, analytics):
+    for fname in os.listdir(out_dir):
+        fpath = join(out_dir, fname)
+        if not fname.startswith('Analytics_'):
+            continue
+        stat_name = fname.split(".")[0][10:]
+        analytics[stat_name] = len(open(os.path.join(out_dir, fname)).read().split('\n'))
 
 def flush_queue(period, run_sig,
                 result_queue, result_list):
