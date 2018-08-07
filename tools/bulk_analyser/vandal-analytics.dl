@@ -298,12 +298,12 @@ Analytics_BlockInNoFunctions(b) :-
    isBlock(b),
    !in_function(b, _).
 
-
 .decl JumpTarget(b: Statement, t: Statement)
 
 JumpTarget(b, t) :-
    JUMP(jmpStmt, _),
    edge(jmpStmt, t),
+   JUMPDEST(t),
    BasicBlockHead(jmpStmt, b).
 
 .decl JumpITarget(b: Statement, t: Statement)
@@ -311,6 +311,7 @@ JumpTarget(b, t) :-
 JumpITarget(b, t) :-
    JUMPI(jmpStmt, _, _),
    edge(jmpStmt, t),
+   JUMPDEST(t),
    BasicBlockHead(jmpStmt, b).
 
 .decl Analytics_MissingJumpTarget(b: Statement)
@@ -320,7 +321,8 @@ Analytics_MissingJumpTarget(b) :-
    IsJump(stmt),
    BasicBlockHead(stmt, b),
    !JumpTarget(b, _),
-   !JumpITarget(b, _).
+   !JumpITarget(b, _),
+   JUMPDEST(_).
 
 .decl NotMissingTarget(b: Statement)
 NotMissingTarget(b) :-
@@ -330,7 +332,8 @@ NotMissingTarget(b) :-
 
 Analytics_MissingJumpTarget(b) :-
    JumpITarget(b, _),
-   !NotMissingTarget(b).
+   !NotMissingTarget(b),
+   JUMPDEST(_).
 
 .decl Analytics_PolymorphicTarget(b: Statement)
 .output Analytics_PolymorphicTarget
