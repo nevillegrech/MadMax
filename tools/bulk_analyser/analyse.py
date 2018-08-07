@@ -376,7 +376,7 @@ def get_gigahorse_analytics(out_dir, analytics):
         if not fname.startswith('Analytics_'):
             continue
         stat_name = fname.split(".")[0][10:]
-        analytics[stat_name] = len(open(os.path.join(out_dir, fname)).read().split('\n'))
+        analytics[stat_name] = sum(1 for line in open(join(out_dir, fname)))
 
 def flush_queue(period, run_sig,
                 result_queue, result_list):
