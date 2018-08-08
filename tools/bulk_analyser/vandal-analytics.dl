@@ -270,10 +270,11 @@ Analytics_StructuredLoop(b) :-
 Analytics_LoopHasExitCond(b) :-
   LoopExitCond(_, b).
 
+// Reachable jump statements
 .decl Analytics_Jumps(jmp:Statement)
 .output Analytics_Jumps
 
-Analytics_Jumps(jmp) :- IsJump(jmp).
+Analytics_Jumps(jmp) :- IsJump(jmp), (edge(jmp, _) ; edge(_, jmp)).
 
 .decl Analytics_Blocks(b:Block)
 .output Analytics_Blocks
@@ -283,6 +284,9 @@ Analytics_Blocks(b) :- isBlock(b).
 .decl Analytics_Functions(fn:Function)
 .output Analytics_Functions
 Analytics_Functions(fn) :- in_function(_, fn).
+
+// This is the selector function (same as in gigahorse)
+Analytics_Functions("0x0").
 
 .decl Analytics_BlockInMultipleFunctions(fn:Function)
 .output Analytics_BlockInMultipleFunctions
@@ -296,7 +300,19 @@ Analytics_BlockInMultipleFunctions(fn) :-
 .output Analytics_BlockInNoFunctions
 Analytics_BlockInNoFunctions(b) :-
    isBlock(b),
-   !in_function(b, _).
+   !in_function(b, _),
+   b != "0x0".
+
+.decl Analytics_UnreachableBlock(b: Block)
+.output Analytics_UnreachableBlock
+
+ReachableBlock("0x0").
+ReachableBlock(b) :- ReachableBlock(p), SuccessorBB(b,p).
+
+Analytics_UnreachableBlock(b) :-
+   isBlock(b),
+   !ReachableBlock(b).
+
 
 .decl JumpTarget(b: Statement, t: Statement)
 
