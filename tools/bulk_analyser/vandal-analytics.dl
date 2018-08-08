@@ -306,6 +306,7 @@ Analytics_BlockInNoFunctions(b) :-
 .decl Analytics_UnreachableBlock(b: Block)
 .output Analytics_UnreachableBlock
 
+.decl ReachableBlock(x: Statement)
 ReachableBlock("0x0").
 ReachableBlock(b) :- ReachableBlock(p), SuccessorBB(b,p).
 
