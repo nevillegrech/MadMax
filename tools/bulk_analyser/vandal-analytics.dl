@@ -145,7 +145,6 @@ FlowsFrom(x, x) :- use(x, _, _).
 FlowsFrom(x, x) :- def(x, _).
 FlowsFrom(x, y) :- def(x, stmt), use(y, stmt, _), op(stmt, op), FlowOp(op).
 FlowsFrom(x, z) :- FlowsFrom(x, y), FlowsFrom(y, z).
-.output FlowsFrom
         
 // The value of x depends on the value of y
 // I.e. y is used to calculate x, either directly as an input of the operation
@@ -366,3 +365,14 @@ Analytics_PolymorphicTarget(b) :-
    t1 != t2,
    JumpITarget(b, t3),
    t3 != t2, t1 != t3.
+
+.decl Analytics_DataFlows(x: Variable, y: Variable)
+.output Analytics_DataFlows
+
+Analytics_DataFlows(x, y) :-
+   FlowsFrom(y, x).
+
+.decl Analytics_Variables(x: Variable)
+.output Analytics_Variables
+
+Analytics_Variables(x) :- use(x, _, _) ; def(x, _).
