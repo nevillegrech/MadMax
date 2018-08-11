@@ -328,6 +328,9 @@ JumpITarget(b, t) :-
    JUMPI(jmpStmt, _, _),
    edge(jmpStmt, t),
    JUMPDEST(t),
+   edge(jmpStmt, t1),
+   t1 != t,
+   BasicBlockHead(t1, _),
    BasicBlockHead(jmpStmt, b).
 
 .decl Analytics_MissingJumpTarget(b: Statement)
@@ -338,17 +341,6 @@ Analytics_MissingJumpTarget(b) :-
    BasicBlockHead(stmt, b),
    !JumpTarget(b, _),
    !JumpITarget(b, _),
-   JUMPDEST(_).
-
-.decl NotMissingTarget(b: Statement)
-NotMissingTarget(b) :-
-   JumpITarget(b, t1),
-   JumpITarget(b, t2),
-   t1 != t2.
-
-Analytics_MissingJumpTarget(b) :-
-   JumpITarget(b, _),
-   !NotMissingTarget(b),
    JUMPDEST(_).
 
 .decl Analytics_PolymorphicTarget(b: Statement)
@@ -362,9 +354,7 @@ Analytics_PolymorphicTarget(b) :-
 Analytics_PolymorphicTarget(b) :-
    JumpITarget(b, t1),
    JumpITarget(b, t2),
-   t1 != t2,
-   JumpITarget(b, t3),
-   t3 != t2, t1 != t3.
+   t1 != t2.
 
 .decl Analytics_DataFlows(x: Variable, y: Variable)
 .output Analytics_DataFlows
