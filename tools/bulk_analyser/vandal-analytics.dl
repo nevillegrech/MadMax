@@ -331,7 +331,8 @@ JumpITarget(b, t) :-
    JUMPI(jmpStmt, _, _),
    edge(jmpStmt, t),
    JUMPDEST(t),
-   !Statement_Next(jmpStmt, t).
+   !Statement_Next(jmpStmt, t),
+   BasicBlockHead(jmpStmt, b).
 
 .decl Analytics_MissingJumpTarget(b: Statement)
 .output Analytics_MissingJumpTarget
