@@ -114,9 +114,11 @@ class CFGTsvExporter(Exporter, patterns.DynamicVisitor):
         ops = []
         block_nums = []
         op_rels = {opcode: list() for opcode in out_opcodes}
+        instructions_order = []
 
         for block in self.source.blocks:
             for op in block.tac_ops:
+                instructions_order.append(int(op.pc))
                 ops.append((hex(op.pc), op.opcode.name))
                 block_nums.append((hex(op.pc), block.ident()))
                 if op.opcode.name in out_opcodes:
@@ -124,6 +126,9 @@ class CFGTsvExporter(Exporter, patterns.DynamicVisitor):
                                          [arg.value.name for arg in op.args])
                     op_rels[op.opcode.name].append(output_tuple)
 
+        instructions_order = list(map(hex, sorted(instructions_order)))
+        generate('Statement_Next.facts', zip(instructions_order, instructions_order[1:]))
+                    
         generate("op.facts", ops)
         generate("block.facts", block_nums)
         for opcode in op_rels:

@@ -24,6 +24,9 @@
 .decl block(s: Statement, b: Block)
 .input block
 
+.decl Statement_Next(s: Statement, n: Statement)
+.input Statement_Next
+
 isBlock(b) :- block(_, b).
 
 .decl in_function(b:Block, t:Function)
@@ -328,10 +331,7 @@ JumpITarget(b, t) :-
    JUMPI(jmpStmt, _, _),
    edge(jmpStmt, t),
    JUMPDEST(t),
-   edge(jmpStmt, t1),
-   t1 != t,
-   BasicBlockHead(t1, _),
-   BasicBlockHead(jmpStmt, b).
+   !Statement_Next(jmpStmt, t).
 
 .decl Analytics_MissingJumpTarget(b: Statement)
 .output Analytics_MissingJumpTarget
@@ -347,13 +347,8 @@ Analytics_MissingJumpTarget(b) :-
 .output Analytics_PolymorphicTarget
 
 Analytics_PolymorphicTarget(b) :-
-   JumpTarget(b, t1),
-   JumpTarget(b, t2),
-   t1 != t2.
-
-Analytics_PolymorphicTarget(b) :-
-   JumpITarget(b, t1),
-   JumpITarget(b, t2),
+   (JumpTarget(b, t1) ; JumpITarget(b, t1)),
+   (JumpTarget(b, t2) ; JumpITarget(b, t2)),
    t1 != t2.
 
 .decl Analytics_DataFlows(x: Variable, y: Variable)
