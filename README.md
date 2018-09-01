@@ -1,26 +1,17 @@
 # Using this repo
+Forked from: https://github.com/usyd-blockchain/vandal
 
-To pull new hotness from the public repo:
-```
-cd vandal-client
-git remote add public https://github.com/usyd-blockchain/vandal.git
-git pull public master # Creates a merge commit
-git push origin master
-```
-Awesome, your private repo now has the latest code from the public repo plus your changes.
+See Grech, N., Kong, M., Jurisevic, A., Brent, L., Scholz, B., Smaragdakis, Y. (2018),
+MadMax: Surviving Out-of-Gas Conditions in Ethereum Smart Contracts.
+Proceedings of the ACM on Programming Languages (OOPSLA).
 
-Finally, to create a pull request private repo -> public repo:
+PDF: http://www.nevillegrech.com/madmax-oopsla18.pdf
 
-The only way to create a pull request is to have push access to the public repo. This is because you need to push to a branch there (here's why).
-```
-git clone https://github.com/usyd-blockchain/vandal.git
-cd vandal
-git remote add private_repo_yourname https://github.com/plast-lab/vandal-client.git
-git checkout -b pull_request_yourname
-git pull private_repo_yourname master
-git push origin pull_request_yourname
-```
-Now simply create a pull request via the Github UI for vandal.
+
+
+# Madmax 
+Madmax consists of a series of analyses and queries that find gas-focussed vulnerabilities in Ethereum smart contracts. The analyses are performed on an IR of the Ethereum bytecode as inferred by the Vandal decompiler. Information about the Vandal decompiler and framework below.
+
 
 # Vandal
 
