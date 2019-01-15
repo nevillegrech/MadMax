@@ -5,7 +5,9 @@ See Grech, N., Kong, M., Jurisevic, A., Brent, L., Scholz, B., Smaragdakis, Y. (
 MadMax: Surviving Out-of-Gas Conditions in Ethereum Smart Contracts.
 Proceedings of the ACM on Programming Languages (OOPSLA).
 
-PDF: http://www.nevillegrech.com/madmax-oopsla18.pdf
+🏆 Distinguished Paper 🏆
+
+PDF: https://www.nevillegrech.com/assets/pdf/madmax-oopsla18.pdf
 
 
 
