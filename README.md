@@ -13,7 +13,9 @@ This codebase is temporarily deprecated. It was used to get the results for the 
 For list of contract flagged by MadMax on the entire Ethereum chain (updated in realtime to reflect the latest changes on the chain), please visit to the following pages, for each vulnerability type, respectively:
 
 [Unbounded Operation](https://contract-library.com/?w=DoS%20(Unbounded%20Operation))
+
 [Wallet Griefing](https://contract-library.com/?w=DoS%20(Wallet%20Griefing))
+
 [Induction Variable Overflow](https://contract-library.com/?w=DoS%20(Induction%20Variable%20Overflow))
 
 
