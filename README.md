@@ -7,10 +7,10 @@ Proceedings of the ACM on Programming Languages (OOPSLA).
 [PDF](https://www.nevillegrech.com/assets/pdf/madmax-oopsla18.pdf)
 
 # Temporarily Deprecated
-This codebase is temporarily deprecated. It was used to get the results for the original submission. We have a more recent version of MadMax that uses the [Gigahorse Framework](https://www.nevillegrech.com/assets/pdf/gigahorse-icse.pdf), the results of which can be viewed on contract-library.com. If you would like to test your own contract please deploy it on an Ethereum test network (e.g. Ropsten) and then view the results of the analysis at [contract-library](https://contract-library.com/).
+This codebase is temporarily deprecated. It was used to obtain the results of the original submission. We have a more recent version of MadMax that uses the [Gigahorse Framework](https://www.nevillegrech.com/assets/pdf/gigahorse-icse.pdf). One can see the latest version in action on contract-library.com. If you would like to test your own contract please deploy it on an Ethereum test network (e.g. Ropsten) and then view the results of the analysis at [contract-library](https://contract-library.com/).
 
     
-For list of contract flagged by MadMax on the entire Ethereum chain (updated in realtime to reflect the latest changes on the chain), please visit to the following pages, for each vulnerability type, respectively:
+For a list of contracts flagged by MadMax on the entire Ethereum chain (updated in realtime to reflect all deployed contracts), please visit the following pages, for each vulnerability type, respectively:
 
 [Unbounded Operation](https://contract-library.com/?w=DoS%20(Unbounded%20Operation))
 
