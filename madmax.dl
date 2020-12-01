@@ -1,0 +1,227 @@
+// MadMax client for the gigahorse decompiler
+
+
+// See Grech, N., Kong, M., Jurisevic, A., Brent, L., Scholz, B., Smaragdakis, Y. (2018),
+// MadMax: Surviving Out-of-Gas Conditions in Ethereum Smart Contracts.
+// Proceedings of the ACM on Programming Languages (OOPSLA).
+// Adapted for: Grech, N., Brent, L., Scholz, B., Smaragdakis, Y.,
+// Gigahorse: Thorough, Declarative Decompilation of Smart Contracts
+// 
+
+#include "gigahorse-toolchain/clientlib/decompiler_imports.dl"
+#include "gigahorse-toolchain/clientlib/loops_semantics.dl"
+#include "gigahorse-toolchain/clientlib/guards.dl"
+#include "gigahorse-toolchain/clientlib/vulnerability_macros.dl"
+
+
+.decl StatementInAccessibleFunction(s: Statement, f: Function)
+
+StatementInAccessibleFunction(s, f) :-
+   Statement_Block(s, b),
+   !StaticallyGuardedBlock(b, _),
+   InFunction(b, f).
+
+.decl LoopBoundByGas(loop: Block)
+        
+LoopBoundByGas(loop) :-
+  LoopExitCond(condVar, loop),
+  StatementInStructuredLoop(stmt, loop),
+  GAS(stmt, var),
+  DataFlows(var, condVar).
+
+//
+//  *** Vulnerability analysis primitives ***
+//
+
+
+
+// UNUSED
+.decl CallSuccessControlsStore(callStmt:Statement, storeStmt: Statement)
+CallSuccessControlsStore(callStmt, storeStmt) :-
+  SSTORE(storeStmt, _, _),
+  Statement_Block(storeStmt, block), 
+  ControlsWith(_, block, condVar),
+  DataFlows(resVar, condVar),
+  CallResult(resVar, callStmt).
+
+CallSuccessControlsStore(callStmt, storeStmt) :-
+  CallResult(resVar, callStmt),
+  DataFlows(resVar, stateVar),
+  SSTORE(storeStmt, _, stateVar).
+
+.decl StorageDynamicBound(x:Block, dynVar:Variable)
+// A loop is dynamically bound by the storage state
+// contained in dynVar
+
+// YS: I don't understand if this is correct. Is it common to have data flow into
+//  condVar *both* from the induction variable and from the dynamic load? And are
+//  both of these necessary?
+StorageDynamicBound(loop, dynVar) :-
+  LoopExitCond(condVar, loop),
+  DataFlows(dynVar, condVar),
+  SLOAD(_, _, dynVar),
+  DataFlows(v, condVar),
+  InductionVariable(v, loop).
+
+.decl InductionVariableInitialisedFromStorage(v:Variable, loop: Block, loadStmt: Statement)
+// An induction variable (v for loop) that is initialised through the result of
+// loading something from storage.
+        
+InductionVariableInitialisedFromStorage(v, loop, loadStmt) :-
+  SLOAD(loadStmt, _, resVar),
+  DataFlows(resVar, v),
+  InductionVariable(v, loop).
+      
+.decl InductionVariableSavedToStorage(v:Variable, loop: Block, storeStmt: Statement)
+// An induction variable (v for loop) that is processed and saved to storage
+
+InductionVariableSavedToStorage(v, loop, storeStmt) :-
+  InductionVariable(v, loop),
+  DataFlows(v, stored),
+  SSTORE(storeStmt, _, stored).
+
+
+.decl PossiblyResumableLoop(loop: Block)
+// A loop that may be able to resumed if it runs out of gas
+// Check whether some induction variable is loaded and stored before/after loop.
+// Check that loops checks for gas.         
+PossiblyResumableLoop(loop) :-
+  InductionVariableInitialisedFromStorage(v, loop, _),
+  InductionVariableSavedToStorage(v, loop, _),
+//  BasicBlockHead(storeStmt, storeStmtHead),
+//  BasicBlockHead(loadStmt, loadStmtHead),
+  // Load has to be able to happen before store
+  //!Dominates(storeStmtHead, loadStmtHead),
+  LoopBoundByGas(loop). 
+        
+.decl CallAddressFromStorage(loadStmt:Statement, index:Variable, callStmt:Statement)
+// Call an address at callStmt that is loaded at loadStmt from storage      
+CallAddressFromStorage(loadStmt, index, callStmt) :-
+  SLOAD(loadStmt, index, resVar),
+  DataFlows(resVar, target),
+  CALL(callStmt, _, target, _, _, _, _, _, _).
+
+.decl InductiveMassCall(callStmt:Statement, loop: Block)
+// Looping through addresses stored in the storage and calling them
+// TODO: check whether these are real addresses,
+// solidity likes to apply specific masks to addreses.
+InductiveMassCall(callStmt, loop) :-
+  CallAddressFromStorage(_, index, callStmt),
+  DependsOn(index, var),
+  InductionVariable(var, loop).
+
+// TODO recursive case
+
+.decl IncreasedStorageOn(sstoreStmt: Statement, arrayId: Value)
+// When this public function is called, some array symbolized by arrayId is increased in size
+        
+IncreasedStorageOn(sstoreStmt, arrayId) :-
+   PossibleArraySizeVariable(sizeVar, arrayId),
+   AddResult(sizeVar, newSizeVar),
+   ADD(addStmt, _, _, newSizeVar),
+   StatementInAccessibleFunction(addStmt, f),
+   SSTORE(sstoreStmt, index, newSizeVar),
+   // not sure about the following, what if function calls private function?
+   StatementInAccessibleFunction(sstoreStmt, f), 
+   Variable_Value(index, arrayId).
+
+
+
+.decl PossibleArrayIterator(loop: Block, resVar:Variable, arrayId:Value)
+// A loop, looping through an array
+// Firstly, the loop has to be dynamically bound by some storage var (resVar)
+// And this must be the array's size variable.        
+PossibleArrayIterator(loop, resVar, arrayId) :-
+  StorageDynamicBound(loop, resVar),
+  PossibleArraySizeVariable(resVar, arrayId).
+
+.decl CastToShortInt(from: Variable, to: Variable, stmt: Statement)
+
+CastToShortInt(from, to, stmt) :-
+  (AND(stmt, from, mask, to) ; AND(stmt, mask, from, to)),
+  (Variable_Value(mask, "0xff") ;
+  Variable_Value(mask, "0xffff")).
+
+
+.init overFlow = LocalFlowAnalysis
+overFlow.TransferOpcode(op) :- FlowOp(op).
+overFlow.TransferBoundary(block) :- BlockInStructuredLoop(block, _).
+
+.decl PossibleLoopOverflow(castStmt: Statement, loop: Block)
+
+PossibleLoopOverflow(castStmt, loop) :-
+  // The following still needs to be looked at
+  InductionVariable(var, loop),                   
+  CastToShortInt(var, to, castStmt),
+  StatementInStructuredLoop(castStmt, loop),
+  overFlow.Flows(to, condVar),
+  LoopExitCond(condVar, loop).
+
+.decl DynamicallyKnown(var: Variable)
+
+DynamicallyKnown(var) :-
+  RuntimeKnowable(op),
+  Statement_Opcode(stmt, op),
+  Statement_Defines(stmt, var, _).
+                 
+.decl OtherDynamicBound(loop: Block, dynVar: Variable)
+        
+OtherDynamicBound(loop, dynVar) :-
+  DynamicallyKnown(dynVar),
+  DataFlows(dynVar, condVar),
+  LoopExitCond(condVar, loop),
+  InductionVariable(v, loop),
+  DataFlows(v, condVar).
+
+// 
+// ** Specific vulnerabilities **
+//
+
+.decl WalletGriefing(x:Statement, arrayId: Value)
+
+VULNERABILITY_DESCRIPTION(
+    WalletGriefing, "DoS (Wallet Griefing)",
+    "Transfer at <0.keystatement> may be susceptible to DoS from griefing wallet stored in <1.storage>"
+)
+
+ 
+WalletGriefing(callStmt, arrayId) :-
+  IncreasedStorageOn(_, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  DataFlows(storeOffsetVar, index),
+  InductionVariable(i, loop),
+  DataFlows(i, index),
+  CallAddressFromStorage(_, index, callStmt),
+  StatementInStructuredLoop(callStmt, loop),
+  CallSuccessControlsException(callStmt, throwStmt),
+  StatementInStructuredLoop(throwStmt, loop).
+
+.decl UnboundedMassOp(x:Statement, y:Statement)
+
+VULNERABILITY_DESCRIPTION(
+    UnboundedMassOp, "DoS (Unbounded Operation)",
+    "Array iterator at <1.keystatement> may be susceptible to DoS by increasing storage requirements at <0.statement>"
+)
+
+UnboundedMassOp(storeStmtOrig, storeStmt) :-
+  IncreasedStorageOn(storeStmtOrig, arrayId),
+  ArrayIdToStorageIndex(arrayId, storeOffsetVar),
+  DataFlows(storeOffsetVar, index),  
+  (SSTORE(storeStmt, index, _) ; SLOAD(storeStmt, index, _)),
+  DataFlows(i, index),
+  StatementInStructuredLoop(storeStmt, loop),
+  InductionVariable(i, loop),
+  PossibleArrayIterator(loop, _, arrayId),
+  !PossiblyResumableLoop(loop).
+
+.decl OverflowLoopIterator(castStmt: Statement)
+
+VULNERABILITY_DESCRIPTION(
+    OverflowLoopIterator, "DoS (Induction Variable Overflow)",
+    "Induction variable at <0.keystatement> may overflow"
+)
+
+OverflowLoopIterator(castStmt) :-
+  PossibleLoopOverflow(castStmt, loop),
+  (OtherDynamicBound(loop, _) ; StorageDynamicBound(loop, _)).
+

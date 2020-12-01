@@ -1,13 +1,24 @@
-See Grech, N., Kong, M., Jurisevic, A., Brent, L., Scholz, B., Smaragdakis, Y. (2018),
-MadMax: Surviving Out-of-Gas Conditions in Ethereum Smart Contracts.
-Proceedings of the ACM on Programming Languages (OOPSLA).
+Note: you need to clone this repo using the `--recursive` flag since this repo has submodules, e.g.,
 
-🏆 Distinguished Paper 🏆
+`git clone git@github.com:nevillegrech/MadMax.git --recursive`
 
-[PDF](https://www.nevillegrech.com/assets/pdf/madmax-oopsla18.pdf)
+# MadMax 
+Madmax consists of a series of analyses and queries that find gas-focussed vulnerabilities in Ethereum smart contracts. The analyses are performed on the [Gigahose](https://github.com/nevillegrech/gigahorse-toolchain) IR, which is lifted from Ethereum bytecode. The first version of MadMax used [Vandal](https://github.com/usyd-blockchain/vandal).
 
-# Temporarily Deprecated
-This codebase is temporarily deprecated. It was used to obtain the results of the original submission. We have a more recent version of MadMax that uses the [Gigahorse Framework](https://www.nevillegrech.com/assets/pdf/gigahorse-icse.pdf). One can see the latest version in action on contract-library.com. If you would like to test your own contract please deploy it on an Ethereum test network (e.g. Ropsten) and then view the results of the analysis at [contract-library](https://contract-library.com/).
+# How to use
+First follow the instructions in [gigahorse-toolchain](gigahorse-toolchain/README.md) for instructions on installation of [Gigahorse](https://github.com/nevillegrech/gigahorse-toolchain). In a nutshell, this requires the installation of the Souffle Datalog engine, custom functors and Boost.
+
+In order to run MadMax using Gigahorse, you can use the following incantation:
+
+`gigahorse-toolchain/gigahorse.py -C madmax.dl <contract.hex>`
+
+Where `<contract.hex>` is a compiled Ethereum contract, or a directory of contracts. If you're running this for the first time it will take longer due to compilation of Datalog files. The output of the analysis results can be found under `.temp/**/out/*.csv` and `results.json`. A summary is also printed to the screen.
+
+To see whether an individual contract is flagged or not if, check whether there are any entries inside the `WalletGriefing`, `UnboundedMassOp` and `OverflowLoopIterator` relations.
+
+
+# Live Deployment
+MadMax is now deployed as a client for the Gigahorse framework. One can see the latest version in action on contract-library.com. If you would like to test your own contract please deploy it on an Ethereum test network (e.g. Ropsten) and then view the results of the analysis at [contract-library](https://contract-library.com/).
 
     
 For a list of contracts flagged by MadMax on the entire Ethereum chain (updated in realtime to reflect all deployed contracts), please visit the following pages, for each vulnerability type, respectively:
@@ -19,173 +30,32 @@ For a list of contracts flagged by MadMax on the entire Ethereum chain (updated 
 [Induction Variable Overflow](https://contract-library.com/?w=DoS%20(Induction%20Variable%20Overflow))
 
 
+# Publications
+
+MadMax: surviving out-of-gas conditions in Ethereum smart contracts
+Neville Grech, Michael Kong, Anton Jurisevic, Lexi Brent, Bernhard Scholz, and Yannis Smaragdakis
+Proceedings of the ACM in Programming Languages (OOPSLA) 2018
+[PDF](https://www.nevillegrech.com/assets/pdf/madmax-oopsla18.pdf)
+
+🏆 Distinguished Paper 🏆
+
+MadMax: Analyzing the Out-of-Gas World of Smart Contracts
+Neville Grech, Michael Kong, Anton Jurisevic, Lexi Brent, Bernhard Scholz, and Yannis Smaragdakis
+Communications of the ACM 2020
+[PDF](https://www.nevillegrech.com/assets/pdf/madmax-cacm.pdf)
+
+🏆 CACM research highlight 🏆
 
 
-# Madmax 
-Madmax consists of a series of analyses and queries that find gas-focussed vulnerabilities in Ethereum smart contracts. The analyses are performed on an IR of the Ethereum bytecode as inferred by the Vandal decompiler. Information about the Vandal decompiler and framework below.
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/LENrSCeoTqg/0.jpg)](https://www.youtube.com/watch?v=LENrSCeoTqg)
 
 
-# Vandal
-
-Vandal is a static program analysis framework for Ethereum smart contract
-bytecode. It decompiles EVM bytecode or disassembly to an
-equivalent intermediate representation, including the contract's control
-flow graph. This representation removes all stack operations and
-thereby exposes data dependencies which are otherwise obscured.
-This information is then fed, with a Datalog specification, into an analysis
-engine for the extraction of program properties.
-
-Vandal provides a platform for detecting potential security vulnerabilities
-in compiled contract bytecode, and supports rapid development of prototyping
-of new vulnerability specifications written in Datalog.
-In a similar fashion, smart contract logic can be more conveniently inspected
-and analysed in other areas, such as correctness and efficiency.
-
-## Requirements
-
-An installation of **Python 3.5** or later is required, alongside various
-packages. The recommended way to install all package dependencies is using
-`pip` and our provided `requirements.txt`, like so:
-
-```
-$ pip install -r requirements.txt
-```
 
 
-## Usage
-
-The decompiler and disassembler are invoked at their simplest as follows:
-
-```
-$ bin/decompile examples/dao_hack.hex
-$ bin/disassemble -p examples/dao_hack.hex
-```
-
-Some cursory information can be obtained by producing verbose debug output:
-
-```
-$ bin/decompile -n -v examples/dao_hack.hex
-```
-
-For manual inspection of a contract, html graph output can be handy:
-
-```
-$ bin/decompile -n -v -g graph.html examples/dao_hack.hex
-```
-
-This produces an interactive page, `graph.html`. If clicked, each node on this
-page displays the code in the basic block it represents, an equivalent
-decompiled block of code, and some accompanying information.
 
 
-Further invocation options are detailed when the `--help` flag is supplied:
-
-```
-$ bin/decompile --help
-$ bin/disassemble --help
-```
-
-### Configuration
-
-Configuration options can be set in `bin/config.ini`. A default value and brief
-description of each option is provided in `src/default_config.ini`. Any of
-these settings may be overridden with the `-c` flag in a `"key=value"` fashion.
-
-### Example
-
-A contract, `loop.sol`:
-```javascript
-contract TestLoop {
-    function test() returns (uint) {
-        uint x = 0;
-        for (uint i = 0; i < 256; i++) {
-            x = x*i + x;
-        }
-        return x;
-    }
-}
-```
-
-Compiled into runtime code, held in `loop.hex`, then decompiled
-and output into an html file:
-```
-$ solc --bin-runtime loop.sol | tail -n 1 > loop.hex
-$ bin/decompile -n -v -c "remove_unreachable=1" -g loop.html loop.hex
-```
 
 
-## Documentation
-
-Sphinx is used for code documentation generation. Sphinx source files are in
-`doc/source/`. To build clean HTML documentation, run:
-
-```
-$ make clean doc
-```
-
-from the repository root. The documentation index will be placed at
-`doc/build/html/index.html`.
 
 
-## Code Style
 
-- Use four spaces for indentation
-- Every public method and class must have a Python docstring
-- Every public method/function definition should have Python 3
-  [type hints](https://docs.python.org/3/library/typing.html)
-- Don't pollute the global scope
-- Don't override Python 3 reserved words or built-ins
-- Keep line lengths to a maximum of 79 characters
-- Do not leave trailing whitespace at the end of a line
-- Avoid `from _ import *` wherever possible
-- Use meaningful variable names. Single letters are OK ***iff*** the meaning is
-  clear and unambiguous, e.g. `for l in lines` where `l` could have no other
-  meaning
-- Use inline comments to explain complicated sections of code
-- Use consistent variable naming across modules to avoid confusion
-- When building on an existing `class`, favour inheritance over wrapping
-- Use classes whenever practical
-
-## Development Workflow
-
-Most development should happen on *feature branches* in personal forks. Here's
-our git workflow:
-
-1. Fork our repository to your own account, and create a new git branch for
-   your feature.
-2. Commit to the feature branch early and often.
-3. When the feature is complete, submit a **pull request** to merge your fork's
-   feature branch into our repository's master branch.
-4. A project member will review the pull request:
-    - If changes are needed, the reviewer will comment with necessary changes
-      Continue committing to the feature branch - the pull request will be
-      updated automatically.
-    - Otherwise, if no changes are needed, the reviewer will approve the pull
-      request for merging.
-    - Note: all Travis-CI status checks are required to pass before a PR is
-      merged, and the feature branch must be up to date with master.
-
-If any code needs to be explained to a reviewer, then it probably needs
-more comments containing the explanation or may need re-factoring.
-
-## Unit Testing
-
-Our testing framework is [pytest](http://doc.pytest.org/). Tests can be run
-from the repository root or the `test/` sub-directory like so (or with the `-v`
-flag for more detail on each test):
-
-```
-$ pytest
-```
-
-Alternatively, you can also use the `Makefile` in the repository root like so:
-
-```
-$ make test
-```
-
-The goal is for all modules to be comprehensively unit-tested, with tests
-placed in a file called `test/test_MODULE.py`, where MODULE is the name of the
-corresponding Python module from `src/`.
-
-Test fixtures and `pytest` settings are defined in `test/conftest.py`.

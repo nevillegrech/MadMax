@@ -18,31 +18,17 @@ doc/source/modules
 # Output files from decompiler
 *.facts
 
-# NodeJS temp files
-.node-xmlhttprequest*
-
-# Scraper output
-0x*_creation.hex
-0x*_runtime.hex
-0x*.json
-
-# Node modules
-node_modules/
-
-# Vim swapfiles
-*.swp
-
 # IDEs
 .idea
 
 # script-generated bats test files
-*.generated.bats
-
 .temp
 
 results.json
 
-spec_compiled
-decompiler_compiled
-spec_compiled.cpp
-decompiler_compiled.cpp
+
+# souffle compilation files
+*_compiled
+*_compiled
+*.ccerr
+*.cpp
