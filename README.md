@@ -3,6 +3,8 @@ Note: you need to clone this repo using the `--recursive` flag since this repo h
 `git clone git@github.com:nevillegrech/MadMax.git --recursive`
 
 # MadMax 
+![License](https://img.shields.io/github/license/nevillegrech/MadMax) ![GitHub Repo stars](https://img.shields.io/github/stars/nevillegrech/MadMax) [![Twitter Follow](https://img.shields.io/twitter/follow/neville_grech.svg?style=social)](https://twitter.com/neville_grech)
+
 Madmax consists of a series of analyses and queries that find gas-focussed vulnerabilities in Ethereum smart contracts. The analyses are performed on the [Gigahose](https://github.com/nevillegrech/gigahorse-toolchain) IR, which is lifted from Ethereum bytecode. The first version of MadMax used [Vandal](https://github.com/usyd-blockchain/vandal).
 
 # How to use
