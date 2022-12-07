@@ -20,17 +20,7 @@ To see whether an individual contract is flagged or not if, check whether there 
 
 
 # Live Deployment
-MadMax is now deployed as a client for the Gigahorse framework. One can see the latest version in action on contract-library.com. If you would like to test your own contract please deploy it on an Ethereum test network (e.g. Ropsten) and then view the results of the analysis at [contract-library](https://contract-library.com/).
-
-    
-For a list of contracts flagged by MadMax on the entire Ethereum chain (updated in realtime to reflect all deployed contracts), please visit the following pages, for each vulnerability type, respectively:
-
-[Unbounded Operation](https://contract-library.com/?w=DoS%20(Unbounded%20Operation))
-
-[Wallet Griefing](https://contract-library.com/?w=DoS%20(Wallet%20Griefing))
-
-[Induction Variable Overflow](https://contract-library.com/?w=DoS%20(Induction%20Variable%20Overflow))
-
+Some of the techniques developed in the MadMax project are now used in [Dedaub Watchdog](https://dedaub.com/watchdog).
 
 # Publications
 
